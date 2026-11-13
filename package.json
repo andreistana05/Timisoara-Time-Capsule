@@ -1,0 +1,18 @@
+{
+  "name": "timisoara-time-capsule",
+  "private": true,
+  "description": "Holographic Living Museum — 3-screen phygital installation (MuseumsQuartier track, Timișoara).",
+  "scripts": {
+    "install:all": "npm install && npm --prefix server install && npm --prefix client install",
+    "dev": "concurrently -k -n server,client -c yellow,cyan \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "start": "npm --prefix client run build && npm --prefix server start",
+    "tunnel": "npx -y cloudflared tunnel --url http://localhost:5173",
+    "reset": "curl -s -X POST http://localhost:3001/api/reset"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.5"
+  }
+}

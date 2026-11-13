@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+/*
+ * TIME CAPSULE design tokens — FROZEN (shared by all views).
+ * Use as Tailwind classes (bg-obsidian, text-amber-gold, font-display…)
+ * or as CSS vars (var(--color-cyan-holo)).
+ */
+@theme {
+  --color-obsidian: #0a0a0f;
+  --color-obsidian-2: #12121a;
+  --color-obsidian-3: #1b1b26;
+  --color-amber-gold: #f59e0b;
+  --color-crimson: #ef4444;
+  --color-cyan-holo: #38bdf8;
+  --color-ivory: #f5f0e6;
+  --color-mist: #9ca3af;
+
+  --font-display: "Cormorant Garamond", "Iowan Old Style", Georgia, serif;
+  --font-sans: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --animate-spin-slow: spin 40s linear infinite;
+  --animate-spin-slower: spin 90s linear infinite;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: var(--color-obsidian);
+  color: var(--color-ivory);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* Glass / hologram surfaces reused across views */
+@utility glass {
+  background: color-mix(in srgb, var(--color-obsidian-2) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ivory) 10%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+@utility holo-text {
+  background: linear-gradient(100deg, var(--color-amber-gold), #fde68a 40%, var(--color-cyan-holo));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@utility grain {
+  background-image: radial-gradient(color-mix(in srgb, var(--color-ivory) 6%, transparent) 1px, transparent 1px);
+  background-size: 3px 3px;
+}

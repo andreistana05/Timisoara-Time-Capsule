@@ -1,0 +1,6 @@
+{
+  "name": "@timecapsule/shared",
+  "private": true,
+  "type": "module",
+  "description": "Socket contract + static metadata shared by server and client. FROZEN — coordinate changes with the whole team."
+}
