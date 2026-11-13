@@ -29,6 +29,16 @@ export const EVENTS = Object.freeze({
   ASK_ARCHIVE: 'ASK_ARCHIVE',
   // server -> all clients  ArchiveAnswer  (one-shot, fired once per answered question, e.g. for the stage)
   ARCHIVE_ANSWER: 'ARCHIVE_ANSWER',
+
+  // ── v3 Phase 2: rotary time-scrubbing + anchored 3D plazas (additive only) ──
+  // client -> server  { timeProgress } | { year }   (send freely while the dial turns; ack optional)
+  TIME_SCRUB: 'TIME_SCRUB',
+  // server -> all clients  TimeScrub  — throttled + volatile while turning, one reliable "settled" emit at rest
+  TIME_SCRUB_UPDATED: 'TIME_SCRUB_UPDATED',
+  // ar -> server  { locked, plazaId?, pose? }  → ack { ok, anchor }
+  LOCK_ANCHOR_STATE: 'LOCK_ANCHOR_STATE',
+  // server -> all clients  AnchorState  — so tablet/stage know the plaza is locked in space
+  ANCHOR_STATE_UPDATED: 'ANCHOR_STATE_UPDATED',
 });
 
 export const {
@@ -42,6 +52,10 @@ export const {
   RESET_TO_SEED,
   ASK_ARCHIVE,
   ARCHIVE_ANSWER,
+  TIME_SCRUB,
+  TIME_SCRUB_UPDATED,
+  LOCK_ANCHOR_STATE,
+  ANCHOR_STATE_UPDATED,
 } = EVENTS;
 
 /**
@@ -214,4 +228,208 @@ export function tr(obj, lang, fallbackLang) {
   if (obj == null) return '';
   if (typeof obj === 'string') return obj;
   return obj[lang] || (fallbackLang && obj[fallbackLang]) || obj.en || obj.ro || Object.values(obj)[0] || '';
+}
+
+// ---- Timeline (v3 Phase 2: rotary time-scrubbing 1900 → 2026) ----------
+/**
+ * The dial is a normalized `timeProgress` t ∈ [0, 1]. Years are NOT linear in t:
+ * the scale is piecewise-linear through the station anchors, so each "Tuning Station"
+ * lands on its exact year (e.g. t 0.85 → 1989) and the dense decades get more travel.
+ *
+ * Backward compatibility: stations never invent chapter ids. Each one names the
+ * EXISTING chapter it snaps `activeChapter` to (`chapter`) and the chapters that
+ * already count as "on this station" (`chapters`), so e.g. Piața Maria is not
+ * overridden by Opera when the dial enters 1989. CHAPTER_IDS is unchanged.
+ *
+ * TimeScrub (TIME_SCRUB_UPDATED payload):
+ *   { timeProgress, currentYear, nearestStation: StationId, stationProximity: 0..1,
+ *     inStation: boolean, settled: boolean, activeChapter, source: socketId | null }
+ *   stationProximity = 1 on the clean frequency → 0 at/after the band edge (pure static).
+ *
+ * AnchorState (ANCHOR_STATE_UPDATED payload, also globalState.anchor):
+ *   { locked, plazaId: string | null,
+ *     pose: { position:[x,y,z], rotation:[x,y,z,w], scale } | null,
+ *     by: role | null, updatedAt: ISOString | null }
+ */
+export const TIMELINE = Object.freeze({ startYear: 1900, endYear: 2026, defaultProgress: 0.85 });
+
+export const STATION_IDS = Object.freeze(['1910_secession', '1977_phoenix', '1989_opera', '2026_modern']);
+
+export const TIMELINE_ERAS = Object.freeze([
+  {
+    id: '1910_secession',
+    order: 1,
+    t: 0.1,
+    year: 1910,
+    halfWidth: 0.05, // band around t where the static clears (proximity > 0)
+    chapter: 'multicultural_mosaic',
+    chapters: ['multicultural_mosaic'],
+    plazaId: 'piata_libertatii_1900',
+    theme: { primary: '#d4a35a', secondary: '#7fb59a', glow: '#f3d9a4' },
+    sound: 'brass_band',
+    title: {
+      ro: 'Piața Libertății și curțile Secession',
+      en: 'Piața Libertății & the Secession Courtyards',
+      hu: 'A Szabadság tér és a szecessziós udvarok',
+      de: 'Freiheitsplatz und die Jugendstil-Höfe',
+      sr: 'Trg slobode i secesijska dvorišta',
+    },
+    subtitle: {
+      ro: 'O fanfară la 1910 și meșteșugari din toate comunitățile orașului.',
+      en: 'A 1910 brass band and craftsmen from every community of the city.',
+      hu: 'Egy 1910-es fúvószenekar és a város minden közösségének mesteremberei.',
+      de: 'Eine Blaskapelle um 1910 und Handwerker aus allen Gemeinschaften der Stadt.',
+      sr: 'Limena muzika oko 1910. i zanatlije iz svih zajednica grada.',
+    },
+  },
+  {
+    id: '1977_phoenix',
+    order: 2,
+    t: 0.6,
+    year: 1977,
+    halfWidth: 0.05,
+    chapter: 'multicultural_mosaic',
+    chapters: ['multicultural_mosaic'],
+    plazaId: 'piata_unirii_1977',
+    theme: { primary: '#a855f7', secondary: '#f97316', glow: '#d8b4fe' },
+    sound: 'censored_rock',
+    title: {
+      ro: 'Rockul din subterană și evadarea Phoenix',
+      en: 'Underground Rock & the Phoenix Escape',
+      hu: 'Underground rock és a Phoenix szökése',
+      de: 'Untergrund-Rock und die Flucht von Phoenix',
+      sr: 'Andergraund rok i bekstvo grupe Phoenix',
+    },
+    subtitle: {
+      ro: '1977: rock cenzurat; membrii trupei timișorene Phoenix fug din țară ascunși în boxe de sunet.',
+      en: "1977: censored rock; members of Timișoara's band Phoenix flee the country hidden in loudspeaker cabinets.",
+      hu: '1977: cenzúrázott rock; a temesvári Phoenix együttes tagjai hangfaldobozokba rejtőzve szöknek el.',
+      de: '1977: zensierter Rock; Mitglieder der Temeswarer Band Phoenix fliehen versteckt in Lautsprecherboxen.',
+      sr: '1977: cenzurisani rok; članovi temišvarske grupe Phoenix beže iz zemlje skriveni u zvučnim kutijama.',
+    },
+  },
+  {
+    id: '1989_opera',
+    order: 3,
+    t: 0.85,
+    year: 1989,
+    halfWidth: 0.05,
+    chapter: '1989_opera',
+    chapters: ['1989_piata_maria', '1989_opera'],
+    plazaId: 'piata_operei_1989',
+    theme: { primary: '#f59e0b', secondary: '#ef4444', glow: '#ffd27a' },
+    sound: 'crowd_libertate',
+    title: {
+      ro: 'Decembrie 1989 — Piața Maria și balconul Operei',
+      en: 'December 1989 — Piața Maria & the Opera Balcony',
+      hu: '1989 decembere — a Mária tér és az Opera erkélye',
+      de: 'Dezember 1989 — Maria-Platz und Opernbalkon',
+      sr: 'Decembar 1989 — Trg Marije i balkon Opere',
+    },
+    subtitle: {
+      ro: 'Peste 100.000 de oameni strigă „Libertate!”.',
+      en: 'More than 100,000 people chant "Libertate!".',
+      hu: 'Több mint 100 000 ember kiáltja: „Libertate!”.',
+      de: 'Über 100.000 Menschen rufen „Libertate!“.',
+      sr: 'Više od 100.000 ljudi uzvikuje „Libertate!”.',
+    },
+  },
+  {
+    id: '2026_modern',
+    order: 4,
+    t: 0.98,
+    year: 2026,
+    halfWidth: 0.04, // narrower: the dial ends at t = 1
+    chapter: 'multicultural_mosaic',
+    chapters: ['multicultural_mosaic'],
+    plazaId: 'timisoara_2026',
+    theme: { primary: '#38bdf8', secondary: '#a78bfa', glow: '#7dd3fc' },
+    sound: 'tram_symphony',
+    title: {
+      ro: 'Timișoara multiculturală vie și simfonia tramvaielor',
+      en: 'Living Multicultural Timișoara & the Tram Symphony',
+      hu: 'Az élő, multikulturális Temesvár és a villamosszimfónia',
+      de: 'Das lebendige multikulturelle Temeswar und die Straßenbahn-Sinfonie',
+      sr: 'Živi multikulturni Temišvar i simfonija tramvaja',
+    },
+    subtitle: {
+      ro: 'Ambient modern și scântei de la comunități.',
+      en: 'Modern ambience and sparks from the communities.',
+      hu: 'Modern hangulat és a közösségek szikrái.',
+      de: 'Moderne Klangwelt und Funken aus den Gemeinschaften.',
+      sr: 'Moderni ambijent i iskre zajednica.',
+    },
+  },
+]);
+
+export const TIMELINE_ERA_BY_ID = Object.freeze(Object.fromEntries(TIMELINE_ERAS.map((e) => [e.id, e])));
+export const isValidStation = (id) => STATION_IDS.includes(id);
+
+// Piecewise-linear (t → year) anchors: both dial ends + every station.
+const TIME_ANCHORS = Object.freeze([[0, TIMELINE.startYear], ...TIMELINE_ERAS.map((e) => [e.t, e.year]), [1, TIMELINE.endYear]]);
+
+export const clamp01 = (v) => Math.min(1, Math.max(0, Number(v) || 0));
+
+/** Exact (fractional) year for a dial position. Round it for display. */
+export function yearFromProgress(t) {
+  const x = clamp01(t);
+  for (let i = 1; i < TIME_ANCHORS.length; i++) {
+    const [t0, y0] = TIME_ANCHORS[i - 1];
+    const [t1, y1] = TIME_ANCHORS[i];
+    if (x <= t1) return t1 === t0 ? y1 : y0 + ((x - t0) / (t1 - t0)) * (y1 - y0);
+  }
+  return TIMELINE.endYear;
+}
+
+/** Inverse of yearFromProgress (first t for a year; years clamp to 1900–2026). */
+export function progressFromYear(year) {
+  const y = Math.min(TIMELINE.endYear, Math.max(TIMELINE.startYear, Number(year) || TIMELINE.startYear));
+  for (let i = 1; i < TIME_ANCHORS.length; i++) {
+    const [t0, y0] = TIME_ANCHORS[i - 1];
+    const [t1, y1] = TIME_ANCHORS[i];
+    if (y <= y1) return y1 === y0 ? t0 : t0 + ((y - y0) / (y1 - y0)) * (t1 - t0);
+  }
+  return 1;
+}
+
+/**
+ * Radio reading for a dial position. Pure and cheap, so clients can call it every
+ * frame for zero-latency local feedback and treat the server echo as confirmation.
+ * stationProximity: cosine falloff, 1 on the station's exact t → 0 at ±halfWidth.
+ * inStation: proximity ≥ STATION_LOCK_THRESHOLD (the static has mostly cleared).
+ */
+export const STATION_LOCK_THRESHOLD = 0.5;
+export function readTimeDial(t) {
+  const x = clamp01(t);
+  let nearest = TIMELINE_ERAS[0];
+  for (const e of TIMELINE_ERAS) if (Math.abs(x - e.t) < Math.abs(x - nearest.t)) nearest = e;
+  const d = Math.abs(x - nearest.t) / nearest.halfWidth;
+  const stationProximity = d >= 1 ? 0 : +(0.5 + 0.5 * Math.cos(Math.PI * d)).toFixed(4);
+  return {
+    timeProgress: +x.toFixed(4),
+    currentYear: Math.round(yearFromProgress(x)),
+    nearestStation: nearest.id,
+    stationProximity,
+    inStation: stationProximity >= STATION_LOCK_THRESHOLD,
+  };
+}
+
+/**
+ * Which chapter should be active for a dial position, given the current one.
+ * Unchanged between stations, or when the current chapter already belongs to the
+ * station. Always returns a valid existing chapter id.
+ */
+export function chapterForProgress(t, currentChapter) {
+  const r = readTimeDial(t);
+  if (!r.inStation) return currentChapter;
+  const era = TIMELINE_ERA_BY_ID[r.nearestStation];
+  return era.chapters.includes(currentChapter) ? currentChapter : era.chapter;
+}
+
+/**
+ * Station to move the dial to when a chapter is picked directly (e.g. on the tablet):
+ * the latest station that hosts the chapter (1989 chapters → 1989, mosaic → 2026).
+ */
+export function stationForChapter(chapterId) {
+  return TIMELINE_ERAS.filter((e) => e.chapters.includes(chapterId)).at(-1) || null;
 }

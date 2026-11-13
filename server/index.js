@@ -7,6 +7,10 @@
  * translation into all 5 languages · ASK_ARCHIVE. AI features are optional
  * (see ai.js); without them everything still works offline.
  *
+ * v3 (Phase 2): TIME_SCRUB rotary dial 1900–2026 with 4 tuning stations (throttled
+ * volatile broadcast while turning + reliable "settled" update), activeChapter snapping
+ * to existing chapter ids, LOCK_ANCHOR_STATE for the AR plaza, GET /api/monuments-3d.
+ *
  * Env: PORT · MEMORIES_FILE (default ./memories.json, relative to /server)
  *      RESET_TOKEN (if set, resets must send it) · AI_DISABLED · CLAUDE_MODEL
  */
@@ -18,8 +22,22 @@ import express from 'express';
 import cors from 'cors';
 import { Server } from 'socket.io';
 
-import { EVENTS, DEFAULT_CHAPTER, DEFAULT_LANGUAGE, LANGUAGE_CODES, isValidChapter, isValidLanguage } from '../shared/events.js';
+import {
+  EVENTS,
+  DEFAULT_CHAPTER,
+  DEFAULT_LANGUAGE,
+  LANGUAGE_CODES,
+  TIMELINE,
+  TIMELINE_ERA_BY_ID,
+  chapterForProgress,
+  isValidChapter,
+  isValidLanguage,
+  progressFromYear,
+  readTimeDial,
+  stationForChapter,
+} from '../shared/events.js';
 import { buildSeedMemories } from './seedData.js';
+import { MONUMENTS_3D, PLAZA_IDS, getPlaza } from './monuments3d.js';
 import {
   applyTranslations,
   buildVisitorMemory,
@@ -38,6 +56,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MEMORIES_FILE = path.resolve(__dirname, process.env.MEMORIES_FILE || 'memories.json');
 const RESET_TOKEN = process.env.RESET_TOKEN || '';
 const ASK_COOLDOWN_MS = 1500;
+// Time dial: in-motion broadcasts are throttled + volatile (dropping a stale frame is fine);
+// once the dial rests for SCRUB_SETTLE_MS one reliable "settled" update + STATE_UPDATED goes out.
+const SCRUB_INTERVAL_MS = 25; // ≈ 40 Hz to the other screens
+const SCRUB_SETTLE_MS = 160;
 
 console.log('');
 await initAi();
@@ -64,12 +86,21 @@ function loadVisitorMemories() {
 }
 
 // ─── State ──────────────────────────────────────────────────────────────
+const UNLOCKED_ANCHOR = Object.freeze({ locked: false, plazaId: null, pose: null, by: null, updatedAt: null });
+
 function createInitialState(visitorMemories = []) {
+  const dial = readTimeDial(TIMELINE.defaultProgress); // 0.85 → 1989
   return {
     activeChapter: DEFAULT_CHAPTER,
     language: DEFAULT_LANGUAGE,
     activeNodeId: null,
     memories: capMemories([...buildSeedMemories(), ...visitorMemories]),
+    // v3 Phase 2 (additive) — mirrored here so late joiners get them in STATE_INIT.
+    timeProgress: dial.timeProgress,
+    currentYear: dial.currentYear,
+    nearestStation: dial.nearestStation,
+    stationProximity: dial.stationProximity,
+    anchor: UNLOCKED_ANCHOR,
   };
 }
 let globalState = createInitialState(loadVisitorMemories());
@@ -130,6 +161,8 @@ function resetToSeed(source) {
   const visitors = visitorMemories();
   const backupPath = store.backup(visitors); // one rolling safety copy, in case of a mis-tap mid-demo
   translator.clear();
+  clearTimeout(scrub.settleTimer);
+  anchorOwner = null;
   globalState = createInitialState();
   store.saveNow([]);
   broadcastState();
@@ -138,6 +171,103 @@ function resetToSeed(source) {
       (backupPath ? ` (backup: ${path.basename(backupPath)})` : ''),
   );
   return { removed: visitors.length };
+}
+
+// ─── Time dial (TIME_SCRUB) ─────────────────────────────────────────────
+const scrub = { lastEmitAt: 0, settleTimer: null, source: null };
+
+const scrubPayload = (settled) => ({
+  timeProgress: globalState.timeProgress,
+  currentYear: globalState.currentYear,
+  nearestStation: globalState.nearestStation,
+  stationProximity: globalState.stationProximity,
+  inStation: readTimeDial(globalState.timeProgress).inStation,
+  activeChapter: globalState.activeChapter,
+  settled,
+  source: scrub.source,
+});
+
+/** Parse { timeProgress } or { year } → t, or null if invalid. */
+function parseScrub(payload) {
+  if (Number.isFinite(payload?.timeProgress)) return payload.timeProgress;
+  if (Number.isFinite(payload?.year)) return progressFromYear(payload.year);
+  return null;
+}
+
+/**
+ * Move the dial. Writes the reading into globalState; snaps activeChapter (reliable
+ * STATE_UPDATED) only when the dial settles into a station that does not already host it.
+ */
+function applyDial(t, sourceId) {
+  const r = readTimeDial(t);
+  scrub.source = sourceId;
+  globalState = {
+    ...globalState,
+    timeProgress: r.timeProgress,
+    currentYear: r.currentYear,
+    nearestStation: r.nearestStation,
+    stationProximity: r.stationProximity,
+  };
+  const nextChapter = chapterForProgress(r.timeProgress, globalState.activeChapter);
+  const chapterChanged = nextChapter !== globalState.activeChapter;
+  if (chapterChanged) {
+    globalState = { ...globalState, activeChapter: nextChapter, activeNodeId: null };
+    broadcastState();
+    console.log(`[⟳] dial ${r.currentYear} → station ${r.nearestStation} → chapter ${nextChapter}`);
+  }
+  return { reading: r, chapterChanged };
+}
+
+function emitScrub(senderSocket, force = false) {
+  const now = Date.now();
+  if (force || now - scrub.lastEmitAt >= SCRUB_INTERVAL_MS) {
+    scrub.lastEmitAt = now;
+    // Others only: the turning screen already shows its own reading (readTimeDial is shared).
+    senderSocket.volatile.broadcast.emit(EVENTS.TIME_SCRUB_UPDATED, scrubPayload(false));
+  }
+  clearTimeout(scrub.settleTimer);
+  scrub.settleTimer = setTimeout(settleScrub, SCRUB_SETTLE_MS);
+}
+
+/** Dial at rest: one reliable update to everyone + a state snapshot for useSocket() clients. */
+function settleScrub() {
+  scrub.settleTimer = null;
+  io.emit(EVENTS.TIME_SCRUB_UPDATED, scrubPayload(true));
+  broadcastState();
+}
+
+// ─── AR anchor (LOCK_ANCHOR_STATE) ──────────────────────────────────────
+let anchorOwner = null; // socket id that locked it; unlocking happens if that socket leaves
+
+const finiteArray = (v, n) => Array.isArray(v) && v.length === n && v.every(Number.isFinite);
+
+function parseAnchor(payload) {
+  if (typeof payload?.locked !== 'boolean') return { error: 'locked (boolean) is required' };
+  if (!payload.locked) return { anchor: { locked: false } };
+  const plazaId = payload.plazaId ?? TIMELINE_ERA_BY_ID[globalState.nearestStation]?.plazaId ?? null;
+  if (plazaId !== null && !PLAZA_IDS.includes(plazaId)) return { error: 'unknown plazaId' };
+  let pose = null;
+  if (payload.pose != null) {
+    const { position, rotation, scale = 1 } = payload.pose;
+    if (!finiteArray(position, 3) || !finiteArray(rotation, 4) || !Number.isFinite(scale) || scale <= 0) {
+      return { error: 'pose must be { position:[x,y,z], rotation:[x,y,z,w], scale>0 }' };
+    }
+    pose = { position, rotation, scale };
+  }
+  return { anchor: { locked: true, plazaId, pose } };
+}
+
+function setAnchor(anchor, role, socketId) {
+  globalState = {
+    ...globalState,
+    anchor: anchor.locked
+      ? { ...anchor, by: role, updatedAt: new Date().toISOString() }
+      : { ...UNLOCKED_ANCHOR, by: role, updatedAt: new Date().toISOString() },
+  };
+  anchorOwner = anchor.locked ? socketId : null;
+  io.emit(EVENTS.ANCHOR_STATE_UPDATED, globalState.anchor);
+  broadcastState();
+  return globalState.anchor;
 }
 
 // ─── Ask the Archive ────────────────────────────────────────────────────
@@ -172,6 +302,15 @@ app.get('/api/health', (_req, res) =>
   }),
 );
 app.get('/api/state', (_req, res) => res.json(globalState));
+// Schematic miniature plazas for /ar (static seed data; ?plaza=<id> for one).
+app.get('/api/monuments-3d', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=300');
+  const id = req.query.plaza;
+  if (id == null) return res.json(MONUMENTS_3D);
+  const plaza = getPlaza(String(id));
+  if (!plaza) return res.status(404).json({ ok: false, error: 'unknown plaza', plazaIds: PLAZA_IDS });
+  res.json({ ...MONUMENTS_3D, plazas: [plaza] });
+});
 // Demo helper: wipe visitor memories and go back to chapter 1 (npm run reset)
 app.post('/api/reset', (req, res) => {
   const token = req.get('x-reset-token') ?? req.body?.token;
@@ -217,9 +356,35 @@ io.on('connection', (socket) => {
     if (!isValidChapter(chapterId)) return fail(ack, 'invalid chapterId');
     if (globalState.activeChapter !== chapterId) {
       globalState = { ...globalState, activeChapter: chapterId, activeNodeId: null };
+      // Keep the dial coherent: if it isn't already resting on a station that hosts this
+      // chapter, move it to the chapter's station (1989 chapters → 1989, mosaic → 2026).
+      const r = readTimeDial(globalState.timeProgress);
+      const hosts = r.inStation && TIMELINE_ERA_BY_ID[r.nearestStation].chapters.includes(chapterId);
+      const station = stationForChapter(chapterId);
+      if (!hosts && station) {
+        clearTimeout(scrub.settleTimer);
+        applyDial(station.t, socket.id);
+        io.emit(EVENTS.TIME_SCRUB_UPDATED, scrubPayload(true));
+      }
       broadcastState();
     }
     ok(ack);
+  });
+
+  socket.on(EVENTS.TIME_SCRUB, (payload, ack) => {
+    const t = parseScrub(payload);
+    if (t === null) return fail(ack, 'timeProgress (0..1) or year is required');
+    const { reading, chapterChanged } = applyDial(t, socket.id);
+    emitScrub(socket, chapterChanged);
+    ok(ack, { ...reading, activeChapter: globalState.activeChapter });
+  });
+
+  socket.on(EVENTS.LOCK_ANCHOR_STATE, (payload, ack) => {
+    const { anchor, error } = parseAnchor(payload);
+    if (error) return fail(ack, error);
+    const result = setAnchor(anchor, role, socket.id);
+    console.log(`[⚓] ${role} ${result.locked ? `locked ${result.plazaId}` : 'unlocked'} the anchor`);
+    ok(ack, { anchor: result });
   });
 
   socket.on(EVENTS.CHANGE_LANGUAGE, (payload, ack) => {
@@ -273,6 +438,9 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
+    // A phone that locked the plaza and then left (sleep, closed tab) must not leave
+    // tablet/stage showing a stale "locked" state.
+    if (anchorOwner === socket.id) setAnchor({ locked: false }, `${role} (disconnected)`, socket.id);
     console.log(`[-] ${socket.id} (${role}) — ${io.engine.clientsCount} connected`);
   });
 });
