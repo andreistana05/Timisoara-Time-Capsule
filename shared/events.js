@@ -20,6 +20,15 @@ export const EVENTS = Object.freeze({
   ADD_MEMORY: 'ADD_MEMORY',
   // server -> all clients (celebration trigger, fired once per new memory)
   MEMORY_ADDED: 'MEMORY_ADDED',
+
+  // ── v2 additions (additive only; older clients can ignore them) ──
+  // client -> server  { token? }  → ack { ok, removed }
+  // Restores the 9 seeds + chapter 1 + 'ro', wipes visitor memories (a backup is kept), broadcasts STATE_UPDATED.
+  RESET_TO_SEED: 'RESET_TO_SEED',
+  // client -> server  { question, language?, chapter?, spotlight? }  → ack { ok, answer: ArchiveAnswer }
+  ASK_ARCHIVE: 'ASK_ARCHIVE',
+  // server -> all clients  ArchiveAnswer  (one-shot, fired once per answered question, e.g. for the stage)
+  ARCHIVE_ANSWER: 'ARCHIVE_ANSWER',
 });
 
 export const {
@@ -30,7 +39,33 @@ export const {
   SELECT_MEMORY_NODE,
   ADD_MEMORY,
   MEMORY_ADDED,
+  RESET_TO_SEED,
+  ASK_ARCHIVE,
+  ARCHIVE_ANSWER,
 } = EVENTS;
+
+/**
+ * Optional `memory.translation` metadata (v2, visitor memories only; seeds omit it):
+ *   {
+ *     status: 'pending' | 'translated' | 'original-only' | 'failed',
+ *     provider: 'claude' | null,
+ *     languages: Lang[],   // languages holding genuine text (original + finished translations)
+ *     updatedAt: ISOString
+ *   }
+ * `title`/`text` always carry all 5 language keys; a language missing from `languages`
+ * holds the original-language text as a fallback (pick the speech voice accordingly).
+ *
+ * ArchiveAnswer (ASK_ARCHIVE ack + ARCHIVE_ANSWER broadcast):
+ *   {
+ *     id: string, question: string, language: Lang, chapter: ChapterId,
+ *     answer: string,          // plain text, already in `language`
+ *     sourceIds: string[],     // memory ids drawn on (can be passed to SELECT_MEMORY_NODE)
+ *     composite: boolean,      // true if the answer draws on composite seed testimonies
+ *     provider: 'claude' | 'archive',
+ *     createdAt: ISOString
+ *   }
+ */
+export const TRANSLATION_STATUSES = Object.freeze(['pending', 'translated', 'original-only', 'failed']);
 
 // ---- Languages ----------------------------------------------------------
 export const LANGUAGES = Object.freeze([
