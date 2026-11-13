@@ -1,0 +1,6 @@
+# Runtime data written by persistence.js — visitor memories are demo data, not source.
+memories.json
+memories.json.tmp
+memories.backup.json
+memories.backup.json.tmp
+memories.corrupt-*.json
