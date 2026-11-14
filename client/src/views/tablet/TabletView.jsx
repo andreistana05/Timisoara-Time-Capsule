@@ -71,7 +71,7 @@ export default function TabletView() {
       <div className="pointer-events-none absolute inset-0 grain opacity-30" />
 
       {/* top bar */}
-      <header className="relative z-10 flex flex-wrap items-center justify-between gap-3 px-4 pt-[max(1rem,env(safe-area-inset-top))] sm:px-8">
+      <header className="relative z-30 flex flex-wrap items-center justify-between gap-3 px-4 pt-[max(1rem,env(safe-area-inset-top))] sm:px-8">
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.35em] text-mist">{ui('tagline', lang)}</p>
           <h1 className="font-display text-2xl font-semibold holo-text sm:text-3xl">{ui('appName', lang)}</h1>
@@ -84,7 +84,7 @@ export default function TabletView() {
 
       <main className="relative z-10 flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain px-4 py-4 sm:px-8 lg:grid lg:grid-cols-[minmax(240px,310px)_minmax(0,1fr)_minmax(260px,340px)] lg:gap-5 lg:overflow-hidden">
         {/* LEFT — tuning stations + chapters (landscape) */}
-        <aside className="hidden min-h-0 flex-col justify-center gap-6 overflow-y-auto overscroll-contain lg:flex">
+        <aside className="hidden min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:flex [&>*:first-child]:mt-auto [&>*:last-child]:mb-auto">
           <div>
             <p className="mb-3 px-1 font-mono text-[11px] uppercase tracking-[0.3em] text-mist">{t('stations', lang)}</p>
             <StationPresets lang={lang} layout="grid" />
