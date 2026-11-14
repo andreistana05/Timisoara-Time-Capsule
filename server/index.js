@@ -10,6 +10,8 @@
  * v3 (Phase 2): TIME_SCRUB rotary dial 1900–2026 with 4 tuning stations (throttled
  * volatile broadcast while turning + reliable "settled" update), activeChapter snapping
  * to existing chapter ids, LOCK_ANCHOR_STATE for the AR plaza, GET /api/monuments-3d.
+ * v3.1: /api/monuments-3d serves authentic OSM footprints + 3D building parts by default
+ * (osmPlazas.js, built from client/public/assets/ar/maps); ?source=schematic keeps the hand-drawn set.
  *
  * Env: PORT · MEMORIES_FILE (default ./memories.json, relative to /server)
  *      RESET_TOKEN (if set, resets must send it) · AI_DISABLED · CLAUDE_MODEL
@@ -38,6 +40,7 @@ import {
 } from '../shared/events.js';
 import { buildSeedMemories } from './seedData.js';
 import { MONUMENTS_3D, PLAZA_IDS, getPlaza } from './monuments3d.js';
+import { MONUMENTS_3D_OSM, getOsmPlaza } from './osmPlazas.js';
 import {
   applyTranslations,
   buildVisitorMemory,
@@ -302,14 +305,17 @@ app.get('/api/health', (_req, res) =>
   }),
 );
 app.get('/api/state', (_req, res) => res.json(globalState));
-// Schematic miniature plazas for /ar (static seed data; ?plaza=<id> for one).
+// Miniature plazas for /ar. Default: AUTHENTIC OpenStreetMap footprints + 3D building parts (osmPlazas.js).
+// ?source=schematic → the hand-drawn layouts; ?plaza=<id> → one plaza. Same schema and plaza ids either way.
 app.get('/api/monuments-3d', (req, res) => {
   res.set('Cache-Control', 'public, max-age=300');
+  const schematic = req.query.source === 'schematic';
+  const data = schematic ? MONUMENTS_3D : MONUMENTS_3D_OSM;
   const id = req.query.plaza;
-  if (id == null) return res.json(MONUMENTS_3D);
-  const plaza = getPlaza(String(id));
+  if (id == null) return res.json(data);
+  const plaza = schematic ? getPlaza(String(id)) : getOsmPlaza(String(id));
   if (!plaza) return res.status(404).json({ ok: false, error: 'unknown plaza', plazaIds: PLAZA_IDS });
-  res.json({ ...MONUMENTS_3D, plazas: [plaza] });
+  res.json({ ...data, plazas: [plaza] });
 });
 // Demo helper: wipe visitor memories and go back to chapter 1 (npm run reset)
 app.post('/api/reset', (req, res) => {

@@ -30,6 +30,8 @@ import { ShaderClock } from './materials.js';
 import { AudioListenerSync, unlockAudio, playChime, startAura, setAura, stopAura, getAura, playArrival, setMuted } from './spatialAudio.js';
 import { useGyro, GyroCamera } from './useGyro.js';
 import { t } from './strings.js';
+import { usePlaza, resolvePlazaId } from './osmPlaza/usePlaza.js';
+import { OsmPlazaStage } from './osmPlaza/OsmHologram.jsx';
 
 const NEW_WINDOW_MS = 15000;
 // Fit the camera distance so the ~4.6-unit-wide orbit ring fits horizontally on any aspect ratio.
@@ -73,6 +75,14 @@ export default function ArView() {
   const newId = lastAddedMemory && Date.now() - lastAddedMemory.receivedAt < NEW_WINDOW_MS ? lastAddedMemory.memory.id : null;
   const gyroActive = mode === 'camera' && gyro.status === 'active';
   const cameraLive = mode === 'camera' && camStatus === 'live';
+
+  /* ───────── authentic OSM plaza (hologram) vs procedural diorama ───────── */
+  const plazaId = resolvePlazaId(state);
+  const { plaza, status: plazaStatus } = usePlaza(plazaId);
+  const lastHolo = useRef(null);
+  // while the next plaza downloads, keep the current one instead of flashing back to the diorama
+  const holo = !plazaId ? null : plazaStatus === 'ready' ? plaza : plazaStatus === 'loading' ? lastHolo.current : null;
+  lastHolo.current = holo;
 
   /* ───────── audio & speech ───────── */
   const enableSound = () => {
@@ -199,7 +209,8 @@ export default function ArView() {
         <Suspense fallback={null}>
           <group position-y={-0.6}>
             <HoloBase color={theme.primary} accent={theme.secondary} />
-            <Diorama key={chapterId} chapterId={chapterId} theme={theme} />
+            {!holo && <Diorama key={chapterId} chapterId={chapterId} theme={theme} />}
+            <OsmPlazaStage plaza={holo} theme={theme} />
             <MemoryOrbs memories={memories} activeNodeId={state?.activeNodeId} newId={newId} onSelect={handleSelect} />
           </group>
         </Suspense>
@@ -238,6 +249,13 @@ export default function ArView() {
               {chapter.dateLabel[lang]}
             </p>
             <p className="font-display text-xl font-semibold leading-tight">{chapter.title[lang]}</p>
+            {holo && (
+              <div className="mt-1.5 space-y-0.5">
+                <p className="text-xs text-ivory/80">{tr(holo.name, lang)}</p>
+                {holo.caveat && <p className="font-mono text-[9px] uppercase tracking-[0.15em] text-mist">{tr(holo.caveat, lang)}</p>}
+                <p className="font-mono text-[9px] tracking-[0.1em] text-mist/80">{holo.attribution}</p>
+              </div>
+            )}
           </motion.div>
         </AnimatePresence>
 

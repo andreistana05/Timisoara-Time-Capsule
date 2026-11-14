@@ -7,8 +7,9 @@
  * their side of the square and construction dates are well established; footprints,
  * exact positions and heights are approximate (`approximate: true`). Unnamed perimeter
  * buildings are deliberately generic ("perimeter block") rather than invented names.
- * For survey-accurate footprints, import OpenStreetMap building polygons later and
- * keep this schema.
+ * Survey-accurate footprints now come from OpenStreetMap: see osmPlazas.js, which is the
+ * DEFAULT for GET /api/monuments-3d and reuses this schema, these plaza ids, names, dates and
+ * sound sources. This file stays as the fallback (?source=schematic, or if a map file is missing).
  *
  * Coordinate system (tabletop units, same for every plaza):
  *   x → east, z → south (north = -z), y → up. Ground at y = 0.
