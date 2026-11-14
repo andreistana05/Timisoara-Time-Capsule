@@ -11,14 +11,18 @@
  * straight to the DOM from one rAF loop — no React re-render per frame. The same loop
  * feeds the smoothed dial into the radio engine (tuner.setDial).
  */
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Radio, Power } from 'lucide-react';
 import { TIMELINE_ERAS, TIMELINE_ERA_BY_ID, readTimeDial, yearFromProgress, progressFromYear } from '@shared/events.js';
 import { stationWindow } from './useTimeTuner.js';
 import { T, ERA_CONTEXT, t_ } from './tunerStrings.js';
+import { useElementWidth } from './stageLayout.js';
 
 const fm = (t) => 87.5 + t * 20.5;
 const DECADES = [1900, 1910, 1920, 1930, 1940, 1950, 1960, 1970, 1980, 1990, 2000, 2010, 2020];
+const LABEL_GAP = 10; // px between two station labels on the same row
+const LABEL_ROW = 15; // px per station-label row
+const DECADE_MIN_PX = 38; // px between decade labels ("1990" ≈ 26 px)
 
 function nearestEra(t) {
   let best = TIMELINE_ERAS[0];
@@ -86,19 +90,51 @@ export default function TimeTunerHUD({ targetRef, reading, tuner, lang, soundOn,
   const live = useRef({});
   live.current = { analysers: tuner.analysers, setDial: tuner.setDial, enabled: tuner.enabled };
 
+  // band width drives label density (decade ticks) and station-label rows
+  const [bandBoxRef, bandW] = useElementWidth();
   const decadeLabels = useMemo(() => {
+    if (!bandW) return [];
     const out = [];
-    let last = -1;
+    let last = -Infinity;
     DECADES.forEach((y) => {
       const t = progressFromYear(y);
-      const nearStation = TIMELINE_ERAS.some((e) => Math.abs(e.t - t) < 0.02 && e.year !== y);
-      if (t - last >= 0.035 && !nearStation) {
+      const x = t * bandW;
+      const nearStation = TIMELINE_ERAS.some((e) => Math.abs(e.t * bandW - x) < 30 && e.year !== y);
+      if (x - last >= DECADE_MIN_PX && !nearStation && x <= bandW - 14) {
         out.push({ y, t });
-        last = t;
+        last = x;
       }
     });
     return out;
+  }, [bandW]);
+
+  // station labels: keep inside the band, and lift a label to a second row when it
+  // would collide with its left neighbour (1989 and 2026 sit only 13% apart)
+  const labelRefs = useRef({});
+  const [labelPos, setLabelPos] = useState({});
+  const [fontsReady, setFontsReady] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    document.fonts?.ready.then(() => alive && setFontsReady(true));
+    return () => {
+      alive = false;
+    };
   }, []);
+  useLayoutEffect(() => {
+    if (!bandW) return;
+    const rowEnds = [-Infinity, -Infinity];
+    const next = {};
+    TIMELINE_ERAS.forEach((e) => {
+      const lw = labelRefs.current[e.id]?.offsetWidth || 80;
+      const left = Math.min(Math.max(e.t * bandW - lw / 2, 0), bandW - lw);
+      let row = rowEnds.findIndex((end) => left >= end + LABEL_GAP);
+      if (row < 0) row = rowEnds[0] <= rowEnds[1] ? 0 : 1;
+      rowEnds[row] = left + lw;
+      next[e.id] = { left, row };
+    });
+    setLabelPos(next);
+  }, [bandW, fontsReady]);
+  const labelRows = Math.max(1, ...Object.values(labelPos).map((p) => p.row + 1));
   const tickTs = useMemo(() => DECADES.map((y) => progressFromYear(y)), []);
 
   useEffect(() => {
@@ -247,15 +283,19 @@ export default function TimeTunerHUD({ targetRef, reading, tuner, lang, soundOn,
 
   return (
     <section
-      className="relative z-10 mx-10 mt-5 grid grid-cols-[14rem_minmax(0,1fr)_26rem] gap-6 rounded-3xl p-5 glass transition-[border-color] duration-1000"
+      className="relative z-10 mx-[var(--stg-px)] grid grid-cols-[var(--stg-tuner-l)_minmax(0,1fr)_var(--stg-tuner-r)] gap-[var(--stg-tuner-gap)] rounded-3xl p-[var(--stg-tuner-pad)] glass transition-[border-color] duration-1000"
       style={{ borderColor: `${accent}44` }}
     >
       {/* ── year + frequency + meter ── */}
-      <div className="flex flex-col justify-between">
-        <p className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.35em]" style={{ color: accent }}>
-          <Radio size={13} className={soundOn ? 'animate-pulse' : ''} /> {t_('timeTuner', lang)}
+      <div className="flex min-w-0 flex-col justify-between gap-1.5">
+        <p className="flex items-center gap-2 font-mono text-[11px] uppercase leading-tight tracking-[0.35em] [@media(max-height:800px)]:tracking-[0.15em]" style={{ color: accent }}>
+          <Radio size={13} className={soundOn ? 'shrink-0 animate-pulse' : 'shrink-0'} /> {t_('timeTuner', lang)}
         </p>
-        <span ref={yearRef} className="font-display text-8xl font-semibold leading-none tabular-nums text-ivory transition-[text-shadow]" />
+        <span
+          ref={yearRef}
+          className="font-display font-semibold leading-[0.95] tabular-nums text-ivory transition-[text-shadow]"
+          style={{ fontSize: 'var(--stg-year)' }}
+        />
         <div className="flex items-center justify-between font-mono text-sm text-mist">
           <span>
             FM <span ref={freqRef} className="tabular-nums text-ivory" /> MHz
@@ -273,25 +313,35 @@ export default function TimeTunerHUD({ targetRef, reading, tuner, lang, soundOn,
         ) : (
           <button
             onClick={onActivate}
-            className="relative flex items-center justify-center gap-2 overflow-hidden rounded-full px-3 py-2 font-mono text-[11px] uppercase tracking-[0.15em] text-obsidian"
+            className="relative flex min-h-9 items-center justify-center gap-2 overflow-hidden rounded-full px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.12em] text-obsidian"
             style={{ background: accent, boxShadow: `0 0 24px ${accent}88` }}
+            title={t_('activate', lang)}
           >
             <span className="absolute inset-0 animate-pulse bg-white/20" />
-            <Power size={14} className="relative" /> <span className="relative leading-tight">{t_('activate', lang)}</span>
+            <Power size={14} className="relative shrink-0" />
+            <span className="relative leading-tight [@media(max-height:800px)]:hidden">{t_('activate', lang)}</span>
+            <span className="relative hidden leading-tight [@media(max-height:800px)]:inline">{t_('activateShort', lang)}</span>
           </button>
         )}
       </div>
 
       {/* ── band: station labels · spectrum + needle · decade ticks · scopes ── */}
       <div className="flex min-w-0 flex-col">
-        <div className="relative h-9">
+        <div className="relative mb-2 shrink-0" style={{ height: labelRows * LABEL_ROW + 2 }}>
           {TIMELINE_ERAS.map((e) => {
             const on = reading.inStation && reading.nearestStation === e.id;
+            const p = labelPos[e.id];
             return (
               <div
                 key={e.id}
-                className="absolute bottom-0 whitespace-nowrap text-center font-mono text-[11px] transition-colors duration-700"
-                style={{ left: `${e.t * 100}%`, transform: `translateX(${e.t > 0.95 ? -85 : -50}%)`, color: on ? e.theme.primary : '#9ca3af' }}
+                ref={(el) => (labelRefs.current[e.id] = el)}
+                className="absolute whitespace-nowrap font-mono text-[11px] leading-[15px] transition-colors duration-700"
+                style={{
+                  left: p ? p.left : 0,
+                  bottom: p ? p.row * LABEL_ROW : 0,
+                  visibility: p ? 'visible' : 'hidden',
+                  color: on ? e.theme.primary : '#9ca3af',
+                }}
               >
                 <span className="font-semibold">{e.year}</span> · {fm(e.t).toFixed(1)}
               </div>
@@ -300,12 +350,16 @@ export default function TimeTunerHUD({ targetRef, reading, tuner, lang, soundOn,
         </div>
 
         <div
-          ref={bandRef}
+          ref={(el) => {
+            bandRef.current = el;
+            bandBoxRef.current = el;
+          }}
           onPointerDown={onDown}
           onPointerMove={onMove}
           onPointerUp={onUp}
           onPointerCancel={onUp}
-          className="relative h-20 cursor-ew-resize touch-none select-none rounded-xl border border-ivory/10 bg-obsidian/60"
+          className="relative shrink-0 cursor-ew-resize touch-none select-none rounded-xl border border-ivory/10 bg-obsidian/60"
+          style={{ height: 'var(--stg-band-h)' }}
           title={t_('dragHint', lang)}
         >
           <canvas ref={spectrumRef} className="absolute inset-0 h-full w-full rounded-xl" />
@@ -328,20 +382,24 @@ export default function TimeTunerHUD({ targetRef, reading, tuner, lang, soundOn,
           </div>
         </div>
 
-        <div className="relative h-5">
+        <div className="relative h-4 shrink-0">
           {decadeLabels.map(({ y, t }) => (
-            <span key={y} className="absolute top-1 -translate-x-1/2 font-mono text-[10px] text-mist/70" style={{ left: `${t * 100}%` }}>
+            <span
+              key={y}
+              className="absolute top-1 font-mono text-[10px] leading-none text-mist/70"
+              style={{ left: `${t * 100}%`, transform: `translateX(${t < 0.01 ? 0 : -50}%)` }}
+            >
               {y}
             </span>
           ))}
         </div>
 
-        <div className="mt-1 grid flex-1 grid-cols-2 gap-3">
+        <div className="mt-1 grid flex-1 grid-cols-2 gap-3" style={{ minHeight: 'var(--stg-scope-h)' }}>
           {[
             [staticRef, t_('static', lang)],
             [signalRef, t_('signal', lang)],
           ].map(([ref, label]) => (
-            <div key={label} className="relative min-h-[3.25rem] overflow-hidden rounded-lg border border-ivory/10 bg-obsidian/50">
+            <div key={label} className="relative overflow-hidden rounded-lg border border-ivory/10 bg-obsidian/50">
               <canvas ref={ref} className="absolute inset-0 h-full w-full" />
               <span className="absolute left-2 top-1 font-mono text-[9px] uppercase tracking-[0.3em] text-mist">{label}</span>
             </div>
@@ -349,25 +407,46 @@ export default function TimeTunerHUD({ targetRef, reading, tuner, lang, soundOn,
         </div>
       </div>
 
-      {/* ── archival context cards (crossfaded by the rAF loop) ── */}
-      <div className="relative min-h-[11.5rem]">
-        <div ref={searchRef} className="absolute inset-0 flex flex-col rounded-2xl border border-dashed border-ivory/15 p-4">
+      {/* ── archival context cards (crossfaded by the rAF loop) ──
+           All cards share one grid cell, so the column is as tall as the tallest card:
+           every title and description is shown in full, never clipped. Shorter screens
+           get the one-line station subtitle; tall screens (≥ 960 px) the longer context. */}
+      <div className="grid min-w-0">
+        <div
+          ref={searchRef}
+          className="flex flex-col rounded-2xl border border-dashed border-ivory/15 [grid-area:1/1]"
+          style={{ padding: 'var(--stg-card-pad)' }}
+        >
           <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-mist">◌ {t_('searching', lang)}</p>
-          <p className="mt-3 text-base leading-snug text-ivory/70">{t_('searchingBody', lang)}</p>
+          <p className="mt-2 leading-snug text-ivory/70" style={{ fontSize: 'var(--stg-card-body)' }}>
+            {t_('searchingBody', lang)}
+          </p>
         </div>
         {TIMELINE_ERAS.map((e) => (
           <div
             key={e.id}
             ref={(el) => (cardRefs.current[e.id] = el)}
-            className="absolute inset-0 flex flex-col overflow-hidden rounded-2xl p-4"
-            style={{ opacity: 0, background: `linear-gradient(135deg, ${e.theme.primary}22, transparent 70%)`, border: `1px solid ${e.theme.primary}55` }}
+            className="flex flex-col rounded-2xl [grid-area:1/1]"
+            style={{
+              opacity: 0,
+              padding: 'var(--stg-card-pad)',
+              background: `linear-gradient(135deg, ${e.theme.primary}22, transparent 70%)`,
+              border: `1px solid ${e.theme.primary}55`,
+            }}
           >
             <p className="font-mono text-[11px] uppercase tracking-[0.3em]" style={{ color: e.theme.primary }}>
               {e.year} · FM {fm(e.t).toFixed(1)}
             </p>
-            <h3 className="mt-1 line-clamp-2 font-display text-2xl font-semibold leading-tight">{e.title[lang] || e.title.en}</h3>
-            <p className="mt-2 line-clamp-3 text-[15px] leading-snug text-ivory/80">{ERA_CONTEXT[e.id]?.[lang] || ERA_CONTEXT[e.id]?.en}</p>
-            <p className="mt-auto pt-2 font-mono text-[9px] uppercase tracking-[0.2em] text-mist/80">{T.reconstruction[lang] || T.reconstruction.en}</p>
+            <h3 className="mt-1 font-display font-semibold leading-[1.12]" style={{ fontSize: 'var(--stg-card-title)' }}>
+              {e.title[lang] || e.title.en}
+            </h3>
+            <p className="mt-1.5 leading-snug text-ivory/80 [@media(min-height:960px)]:hidden" style={{ fontSize: 'var(--stg-card-body)' }}>
+              {e.subtitle[lang] || e.subtitle.en}
+            </p>
+            <p className="mt-1.5 hidden leading-snug text-ivory/80 [@media(min-height:960px)]:block" style={{ fontSize: 'var(--stg-card-body)' }}>
+              {ERA_CONTEXT[e.id]?.[lang] || ERA_CONTEXT[e.id]?.en}
+            </p>
+            <p className="mt-auto pt-1.5 font-mono text-[9px] uppercase leading-snug tracking-[0.2em] text-mist/80">{T.reconstruction[lang] || T.reconstruction.en}</p>
           </div>
         ))}
       </div>
