@@ -105,6 +105,53 @@ export const TABLET_STRINGS = Object.freeze({
     de: 'Dein Funke steigt über dem Siegel auf…',
     sr: 'Tvoja iskra se uzdiže iznad Pečata…',
   },
+  // ── Time Tuner (rotary dial 1900–2026) ──
+  tuner: { ro: 'Acordor de timp', en: 'Time tuner', hu: 'Időhangoló', de: 'Zeit-Tuner', sr: 'Vremenski tjuner' },
+  stations: {
+    ro: 'Posturi istorice',
+    en: 'Tuning stations',
+    hu: 'Történelmi állomások',
+    de: 'Historische Sender',
+    sr: 'Istorijske stanice',
+  },
+  turnHint: {
+    ro: 'Rotește inelul exterior · 1900 → 2026',
+    en: 'Turn the outer ring · 1900 → 2026',
+    hu: 'Forgasd a külső gyűrűt · 1900 → 2026',
+    de: 'Dreh den äußeren Ring · 1900 → 2026',
+    sr: 'Okreni spoljni prsten · 1900 → 2026',
+  },
+  signal: { ro: 'Semnal', en: 'Signal', hu: 'Jel', de: 'Signal', sr: 'Signal' },
+  locked: { ro: 'Acordat', en: 'Locked', hu: 'Behangolva', de: 'Empfang', sr: 'Uhvaćeno' },
+  searching: {
+    ro: 'Între posturi — paraziți',
+    en: 'Between stations — static',
+    hu: 'Állomások között — zörej',
+    de: 'Zwischen den Sendern — Rauschen',
+    sr: 'Između stanica — šum',
+  },
+  tuningIn: {
+    ro: 'Se prinde semnalul',
+    en: 'Tuning in',
+    hu: 'Jel befogása',
+    de: 'Sender kommt näher',
+    sr: 'Hvatanje signala',
+  },
+  yearDial: {
+    ro: 'Selector de an, 1900–2026',
+    en: 'Year dial, 1900–2026',
+    hu: 'Évválasztó tárcsa, 1900–2026',
+    de: 'Jahresregler, 1900–2026',
+    sr: 'Birač godine, 1900–2026',
+  },
+  arAnchor: { ro: 'Ancoră AR', en: 'AR anchor', hu: 'AR-horgony', de: 'AR-Anker', sr: 'AR sidro' },
+  anchorLocked: {
+    ro: 'Lentilă ancorată',
+    en: 'Lens locked',
+    hu: 'Lencse rögzítve',
+    de: 'Linse verankert',
+    sr: 'Sočivo usidreno',
+  },
   symbolMeaning: {
     candle: { ro: 'pentru amintire', en: 'for remembrance', hu: 'az emlékezésért', de: 'zum Gedenken', sr: 'za sećanje' },
     flower: { ro: 'pentru recunoștință', en: 'for gratitude', hu: 'a hálaért', de: 'aus Dankbarkeit', sr: 'za zahvalnost' },
@@ -117,6 +164,14 @@ export function t(key, lang) {
   if (!entry) return key;
   return entry[lang] || entry.en || key;
 }
+
+/** Short station names for the dial presets (full titles live in TIMELINE_ERAS). */
+export const STATION_SHORT = Object.freeze({
+  '1910_secession': { ro: 'Secession', en: 'Secession', hu: 'Szecesszió', de: 'Jugendstil', sr: 'Secesija' },
+  '1977_phoenix': { ro: 'Rock Phoenix', en: 'Phoenix Rock', hu: 'Phoenix-rock', de: 'Phoenix-Rock', sr: 'Phoenix rok' },
+  '1989_opera': { ro: 'Revoluția', en: 'Revolution', hu: 'Forradalom', de: 'Revolution', sr: 'Revolucija' },
+  '2026_modern': { ro: 'Prezent', en: 'Modern', hu: 'Jelen', de: 'Gegenwart', sr: 'Sadašnjost' },
+});
 
 export const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V'];
 

@@ -1,11 +1,12 @@
 /**
  * /tablet — "The Physical Pedestal". Owner: Member 2.
- * Lies flat on the table. The Seal sits in the centre (AR anchor), surrounded
- * by chapter cards, the language switcher, the live memory list and the
+ * Lies flat on the table. The Seal in the centre is now the Rotary Time Tuner
+ * (1900–2026) with a static 6DoF AR anchor in its core, surrounded by the station
+ * presets, chapter cards, the language switcher, the live memory list and the
  * "Ignite a Memory Spark" drawer.
  *
- * Landscape (≥1024px): chapters | Seal | memories
- * Portrait / small:    Seal → chapter row → memory strip (scrolls)
+ * Landscape (≥1024px): stations + chapters | Tuner + faceplate | memories
+ * Portrait / small:    Tuner → faceplate → presets → chapter → chapter row → memory strip (scrolls)
  */
 import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -19,6 +20,8 @@ import MemoryDrawer from './MemoryDrawer.jsx';
 import ChapterCards from './ChapterCards.jsx';
 import LanguageSwitcher from './LanguageSwitcher.jsx';
 import MemoryList from './MemoryList.jsx';
+import TunerFaceplate from './TunerFaceplate.jsx';
+import StationPresets from './StationPresets.jsx';
 import { t, haptic, ROMAN } from './strings.js';
 
 export default function TabletView() {
@@ -31,6 +34,7 @@ export default function TabletView() {
   const theme = chapter.theme;
   const { primary, secondary, glow } = theme;
   const activeNodeId = state?.activeNodeId ?? null;
+  const anchorLocked = !!state?.anchor?.locked;
 
   const allMemories = state?.memories;
   const { chapterMemories, counts } = useMemo(() => {
@@ -78,16 +82,22 @@ export default function TabletView() {
         </div>
       </header>
 
-      <main className="relative z-10 flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain px-4 py-4 sm:px-8 lg:grid lg:grid-cols-[minmax(250px,330px)_minmax(0,1fr)_minmax(270px,360px)] lg:gap-5 lg:overflow-hidden">
-        {/* LEFT — chapters (landscape) */}
-        <aside className="hidden min-h-0 flex-col justify-center lg:flex">
-          <p className="mb-3 px-1 font-mono text-[11px] uppercase tracking-[0.3em] text-mist">{t('chooseChapter', lang)}</p>
-          <ChapterCards lang={lang} activeId={chapterId} onChange={changeChapter} counts={counts} layout="column" />
+      <main className="relative z-10 flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain px-4 py-4 sm:px-8 lg:grid lg:grid-cols-[minmax(240px,310px)_minmax(0,1fr)_minmax(260px,340px)] lg:gap-5 lg:overflow-hidden">
+        {/* LEFT — tuning stations + chapters (landscape) */}
+        <aside className="hidden min-h-0 flex-col justify-center gap-6 overflow-y-auto overscroll-contain lg:flex">
+          <div>
+            <p className="mb-3 px-1 font-mono text-[11px] uppercase tracking-[0.3em] text-mist">{t('stations', lang)}</p>
+            <StationPresets lang={lang} layout="grid" />
+          </div>
+          <div>
+            <p className="mb-3 px-1 font-mono text-[11px] uppercase tracking-[0.3em] text-mist">{t('chooseChapter', lang)}</p>
+            <ChapterCards lang={lang} activeId={chapterId} onChange={changeChapter} counts={counts} layout="column" />
+          </div>
         </aside>
 
-        {/* CENTRE — the Seal */}
+        {/* CENTRE — the Rotary Time Tuner */}
         <section className="flex shrink-0 flex-col items-center justify-center gap-3 lg:min-h-0 lg:shrink">
-          <div className="aspect-square w-[min(88vw,50vh)] max-w-[620px] lg:w-[min(100%,calc(100dvh-330px))]">
+          <div className="flex w-[min(100%,56vh)] max-w-[720px] flex-col gap-3 lg:w-[min(100%,calc(100dvh-300px))]">
             <Seal
               chapterId={chapterId}
               theme={theme}
@@ -98,9 +108,16 @@ export default function TabletView() {
                 selectMemoryNode(id);
               }}
               lastAddedMemory={lastAddedMemory}
+              anchorLocked={anchorLocked}
+              lang={lang}
             />
+            <TunerFaceplate lang={lang} />
+            <div className="lg:hidden">
+              <StationPresets lang={lang} layout="row" />
+            </div>
           </div>
 
+          {/* chapter heading — portrait only (landscape shows it on the chapter cards) */}
           <AnimatePresence mode="popLayout" initial={false}>
             <motion.div
               key={chapterId + lang}
@@ -108,7 +125,7 @@ export default function TabletView() {
               animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
               exit={{ opacity: 0, y: -8, filter: 'blur(6px)' }}
               transition={{ duration: 0.9, ease: 'easeOut' }}
-              className="max-w-xl text-center"
+              className="max-w-xl text-center lg:hidden"
             >
               <p className="font-mono text-[11px] uppercase tracking-[0.3em]" style={{ color: primary }}>
                 {ui('chapter', lang)} {ROMAN[chapter.order]} · {chapter.dateLabel[lang]} · {chapter.place}
@@ -118,7 +135,7 @@ export default function TabletView() {
             </motion.div>
           </AnimatePresence>
 
-          <p className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.3em] text-mist/70">
+          <p className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.3em] text-mist/70 lg:hidden">
             <ScanLine size={14} /> {t('sealHint', lang)}
           </p>
 
