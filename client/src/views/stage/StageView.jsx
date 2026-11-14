@@ -3,9 +3,14 @@
  * Full-screen, dark, projector-friendly (readable from 4 m).
  *
  *  ┌ header: title · language · counts · clock · connection · sound · fullscreen ┐
+ *  │ TIME TUNER: giant year · 1900–2026 band + needle · scopes · archival card    │
  *  │ chapter title + "now in the light" card + soundwave │  constellation map     │
  *  └ living archive strip ─────────────────────────────────────────────────────── ┘
  *  overlays: SpotlightOverlay (SELECT_MEMORY_NODE) · Celebration (MEMORY_ADDED)
+ *
+ * Sound: "Activate Museum Sound System" starts BOTH engines — the Time Tuner radio
+ * (useTimeTuner, driven by TIME_SCRUB_UPDATED) and the chapter drone + chimes
+ * (useAmbientAudio, its drone bed ducked under the radio).
  *
  * Keys: M = mute/unmute · F = fullscreen · Esc = close spotlight overlay.
  */
@@ -20,8 +25,12 @@ import SoundwaveVisualizer from './SoundwaveVisualizer.jsx';
 import Celebration from './Celebration.jsx';
 import ConstellationMap from './ConstellationMap.jsx';
 import SpotlightOverlay from './SpotlightOverlay.jsx';
+import TimeTunerHUD from './TimeTunerHUD.jsx';
 import { useAmbientAudio } from './useAmbientAudio.js';
+import { useTimeTuner } from './useTimeTuner.js';
+import { useTimeScrub } from './useTimeScrub.js';
 import { s } from './stageStrings.js';
+import { t_ } from './tunerStrings.js';
 
 /** Overlay time scales with testimony length (12–26 s). */
 const overlayDuration = (memory, lang) => {
@@ -150,7 +159,25 @@ export default function StageView() {
   const liveCount = memories.filter((m) => !m.isSeed).length;
   const newestId = lastAddedMemory && Date.now() - lastAddedMemory.receivedAt < 15000 ? lastAddedMemory.memory.id : null;
 
-  const { chime, enable, toggle, enabled, wantsSound } = audio;
+  const { chime, setBedLevel } = audio;
+
+  // ---- Time Tuner: live dial + radio engine ---------------------------------
+  const { targetRef, reading, scrubTo } = useTimeScrub(state);
+  const tuner = useTimeTuner();
+  const soundOn = audio.enabled || tuner.enabled;
+  const wantsSound = audio.wantsSound || tuner.wantsSound;
+  const { enable: enableAmbient, disable: disableAmbient } = audio;
+  const { enable: enableTuner, disable: disableTuner } = tuner;
+  const activate = useCallback(() => {
+    enableAmbient();
+    enableTuner();
+  }, [enableAmbient, enableTuner]);
+  const silence = useCallback(() => {
+    disableAmbient();
+    disableTuner();
+  }, [disableAmbient, disableTuner]);
+  const toggleSound = useCallback(() => (soundOn ? silence() : activate()), [soundOn, silence, activate]);
+  useEffect(() => setBedLevel(tuner.enabled ? 0.3 : 1), [tuner.enabled, setBedLevel]);
 
   // ---- spotlight overlay: opens on every *new* selection ------------------
   const [overlayId, setOverlayId] = useState(null);
@@ -190,12 +217,12 @@ export default function StageView() {
   const fullscreen = useCallback(() => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.()), []);
   useEffect(() => {
     const onPointer = () => {
-      if (wantsSound && !enabled) enable();
+      if (wantsSound && !soundOn) activate();
     };
     const onKey = (e) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       const k = e.key.toLowerCase();
-      if (k === 'm') toggle();
+      if (k === 'm') toggleSound();
       else if (k === 'f') fullscreen();
       else if (k === 'escape') setOverlayId(null);
     };
@@ -205,7 +232,7 @@ export default function StageView() {
       window.removeEventListener('pointerdown', onPointer);
       window.removeEventListener('keydown', onKey);
     };
-  }, [wantsSound, enabled, enable, toggle, fullscreen]);
+  }, [wantsSound, soundOn, activate, toggleSound, fullscreen]);
 
   const select = useCallback((id) => selectMemoryNode(id), [selectMemoryNode]);
 
@@ -233,13 +260,13 @@ export default function StageView() {
           </span>
           <ConnectionBadge connected={connected} lang={lang} />
           <button
-            onClick={toggle}
+            onClick={toggleSound}
             className="flex items-center gap-2 rounded-full px-3 py-2 glass hover:text-ivory"
-            title={s(enabled ? 'mute' : 'unmute', lang)}
-            style={enabled ? { color: theme.primary, borderColor: `${theme.primary}66` } : undefined}
+            title={s(soundOn ? 'mute' : 'unmute', lang)}
+            style={soundOn ? { color: theme.primary, borderColor: `${theme.primary}66` } : undefined}
           >
-            {enabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
-            {enabled && (
+            {soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
+            {soundOn && (
               <span className="flex h-3 items-end gap-[2px]">
                 {[0, 1, 2].map((i) => (
                   <motion.span
@@ -259,8 +286,11 @@ export default function StageView() {
         </div>
       </header>
 
+      {/* time tuner band */}
+      <TimeTunerHUD targetRef={targetRef} reading={reading} tuner={tuner} lang={lang} soundOn={soundOn} onActivate={activate} scrubTo={scrubTo} />
+
       {/* main */}
-      <main className="relative z-10 grid min-h-0 flex-1 grid-cols-12 gap-8 px-10 py-6">
+      <main className="relative z-10 grid min-h-0 flex-1 grid-cols-12 gap-8 px-10 py-5">
         <section className="col-span-5 flex min-h-0 flex-col gap-5">
           <AnimatePresence mode="wait">
             <motion.div
@@ -273,26 +303,26 @@ export default function StageView() {
               <p className="font-mono text-sm uppercase tracking-[0.4em]" style={{ color: theme.primary }}>
                 {ui('chapter', lang)} {chapter.order} · {chapter.dateLabel[lang]}
               </p>
-              <h2 className="mt-3 font-display text-6xl font-semibold leading-[0.95] 2xl:text-7xl">{chapter.title[lang]}</h2>
-              <p className="mt-4 text-2xl leading-snug text-ivory/75">{chapter.subtitle[lang]}</p>
+              <h2 className="mt-3 font-display text-5xl font-semibold leading-[0.95] 2xl:text-6xl">{chapter.title[lang]}</h2>
+              <p className="mt-3 line-clamp-2 text-2xl leading-snug text-ivory/75">{chapter.subtitle[lang]}</p>
             </motion.div>
           </AnimatePresence>
 
           <NowLit memory={activeMemory} lang={lang} theme={theme} chapter={chapter} onReopen={() => activeMemory && setOverlayId(activeMemory.id)} />
 
-          <div className="relative min-h-[110px] flex-1">
+          <div className="relative min-h-[90px] flex-1">
             <SoundwaveVisualizer
               analyser={audio.analyser}
               colors={[theme.primary, theme.secondary, theme.glow]}
               burst={(lastAddedMemory?.receivedAt || 0) + selectPulse}
             />
-            {!enabled && (
+            {!soundOn && (
               <button
-                onClick={enable}
+                onClick={activate}
                 className="absolute bottom-2 left-0 flex items-center gap-2 rounded-full px-4 py-2 font-mono text-xs text-mist glass hover:text-ivory"
                 style={{ borderColor: `${theme.primary}55` }}
               >
-                <Volume2 size={14} /> {s(wantsSound ? 'resumeSound' : 'enableSound', lang)}
+                <Volume2 size={14} /> {wantsSound ? s('resumeSound', lang) : t_('activate', lang)}
               </button>
             )}
           </div>

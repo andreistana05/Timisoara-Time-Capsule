@@ -134,6 +134,12 @@ function buildGraph(ctx) {
   chimeBus.connect(delay);
   chimeBus.connect(reverb);
 
+  // "bed" = pads + sub + noise; ducked under the Time Tuner radio (chimes stay on top)
+  const bed = ctx.createGain();
+  bed.gain.value = 1;
+  bed.connect(bus);
+  bed.connect(reverb);
+
   // pads
   const padFilter = ctx.createBiquadFilter();
   padFilter.type = 'lowpass';
@@ -142,8 +148,7 @@ function buildGraph(ctx) {
   const padOut = ctx.createGain();
   padOut.gain.value = 1;
   padFilter.connect(padOut);
-  padOut.connect(bus);
-  padOut.connect(reverb);
+  padOut.connect(bed);
   const lfo = ctx.createOscillator();
   lfo.frequency.value = 0.045;
   const lfoGain = ctx.createGain();
@@ -195,7 +200,7 @@ function buildGraph(ctx) {
   sub.frequency.value = 55;
   const subGain = ctx.createGain();
   subGain.gain.value = 0;
-  sub.connect(subGain).connect(bus);
+  sub.connect(subGain).connect(bed);
   sub.start();
 
   // noise texture
@@ -215,11 +220,10 @@ function buildGraph(ctx) {
   noiseLfo.connect(noiseLfoDepth).connect(noiseGain.gain);
   noiseLfo.start();
   noise.connect(noiseFilter).connect(noiseGain);
-  noiseGain.connect(bus);
-  noiseGain.connect(reverb);
+  noiseGain.connect(bed);
   noise.start();
 
-  return { master, an, bus, reverb, chimeBus, noiseBuf, padFilter, lfoGain, voices, sub, subGain, noiseFilter, noiseGain, noiseLfoDepth };
+  return { master, an, bus, bed, reverb, chimeBus, noiseBuf, padFilter, lfoGain, voices, sub, subGain, noiseFilter, noiseGain, noiseLfoDepth };
 }
 
 /** Inharmonic additive bell. */
@@ -256,6 +260,7 @@ export function useAmbientAudio(chapterId) {
   const chapterRef = useRef(chapterId);
   const enabledRef = useRef(false);
   const chordIdxRef = useRef(0);
+  const bedLevelRef = useRef(1);
   const timersRef = useRef({ chord: null, sparkle: null, toll: null, suspend: null });
   const [enabled, setEnabled] = useState(false);
   const [analyser, setAnalyser] = useState(null);
@@ -374,6 +379,7 @@ export function useAmbientAudio(chapterId) {
     g.cancelScheduledValues(ctx.currentTime);
     g.setValueAtTime(g.value, ctx.currentTime);
     g.linearRampToValueAtTime(0.85, ctx.currentTime + 2.5);
+    nodesRef.current.bed.gain.setValueAtTime(bedLevelRef.current, ctx.currentTime);
     enabledRef.current = true;
     applyChord(2);
     scheduleLoops();
@@ -394,6 +400,14 @@ export function useAmbientAudio(chapterId) {
     timersRef.current.suspend = setTimeout(() => {
       if (!enabledRef.current) ctx.suspend();
     }, 1000);
+  }, []);
+
+  /** Level of the drone bed (0..1). Chimes and bells are unaffected. */
+  const setBedLevel = useCallback((level) => {
+    bedLevelRef.current = level;
+    const ctx = ctxRef.current;
+    const n = nodesRef.current;
+    if (ctx && n) n.bed.gain.setTargetAtTime(level, ctx.currentTime, 0.8);
   }, []);
 
   const toggle = useCallback(() => (enabledRef.current ? disable() : enable()), [enable, disable]);
@@ -463,5 +477,5 @@ export function useAmbientAudio(chapterId) {
     [],
   );
 
-  return { enabled, enable, disable, toggle, analyser, chime, wantsSound };
+  return { enabled, enable, disable, toggle, analyser, chime, wantsSound, setBedLevel };
 }
