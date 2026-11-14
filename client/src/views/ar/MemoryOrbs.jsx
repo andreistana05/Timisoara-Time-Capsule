@@ -33,7 +33,7 @@ function risePath(slot, k, out) {
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 
-function Orb({ memory, selected, isNew, onSelect }) {
+function Orb({ memory, selected, isNew, onSelect, liftRef, spreadRef }) {
   const color = SYMBOL_META[memory.symbol]?.color || '#f59e0b';
   const slot = useMemo(() => {
     const p = memory.position || { x: 1.6, y: 0.6, z: 0 };
@@ -60,6 +60,10 @@ function Orb({ memory, selected, isNew, onSelect }) {
     if (!group.current) return;
 
     risePath(slot, k, group.current.position);
+    // pull the orbit in when the camera frames a plaza tightly (portrait phones)
+    const sp = spreadRef?.current ?? 1;
+    group.current.position.x *= sp;
+    group.current.position.z *= sp;
     group.current.position.y += Math.sin(t * 1.1 + seed) * 0.07 * k;
 
     const pulse = selected ? speechPulse.value * 0.25 : 0;
@@ -74,7 +78,7 @@ function Orb({ memory, selected, isNew, onSelect }) {
       rings.current.rotation.y += 0.013;
     }
     if (tether.current) {
-      const h = Math.max(0.01, group.current.position.y);
+      const h = Math.max(0.01, group.current.position.y + (liftRef?.current || 0)); // tether reaches the pedestal
       tether.current.visible = selected;
       tether.current.scale.set(1, h, 1);
       tether.current.position.y = -h / 2;
@@ -136,12 +140,12 @@ function Orb({ memory, selected, isNew, onSelect }) {
 }
 
 /** Light pillar, spiralling particles and a shockwave for a newly risen memory. */
-function RiseFX({ memory }) {
+function RiseFX({ memory, spread = 1 }) {
   const color = SYMBOL_META[memory.symbol]?.color || '#f59e0b';
   const slot = useMemo(() => {
     const p = memory.position || { x: 1.6, y: 0.6, z: 0 };
-    return { x: p.x, y: p.y + 0.35, z: p.z };
-  }, [memory.position]);
+    return { x: p.x * spread, y: p.y + 0.35, z: p.z * spread };
+  }, [memory.position]); // eslint-disable-line react-hooks/exhaustive-deps
   const born = useRef(performance.now());
   const [done, setDone] = useState(false);
   const pillarMat = useShader(makeBeamMaterial, color, 1.4);
@@ -215,20 +219,33 @@ function RiseFX({ memory }) {
   );
 }
 
-export default function MemoryOrbs({ memories, activeNodeId, newId, onSelect }) {
+/**
+ * `lift` raises the whole orbit (e.g. above the rooftops of a real OSM plaza) with a smooth glide;
+ * the Piața Maria diorama uses lift = 0 (the original orbit).
+ */
+export default function MemoryOrbs({ memories, activeNodeId, newId, onSelect, lift = 0, spread = 1 }) {
   const ring = useRef();
+  const lifter = useRef();
+  const liftNow = useRef(lift);
+  const spreadNow = useRef(spread);
   useFrame((_, dt) => {
     // orbit slowly; pause while a story is being told so the orb stays put
     if (ring.current && !activeNodeId) ring.current.rotation.y += dt * 0.07;
     speechPulse.value *= Math.pow(0.02, dt); // decays to about 2% per second
+    const k = 1 - Math.pow(0.04, dt); // ~1 s ease toward the targets
+    liftNow.current += (lift - liftNow.current) * k;
+    spreadNow.current += (spread - spreadNow.current) * k;
+    if (lifter.current) lifter.current.position.y = liftNow.current;
   });
   const fresh = newId ? memories.find((m) => m.id === newId) : null;
   return (
-    <group ref={ring}>
-      {memories.map((m) => (
-        <Orb key={m.id} memory={m} selected={m.id === activeNodeId} isNew={m.id === newId} onSelect={onSelect} />
-      ))}
-      {fresh && <RiseFX key={fresh.id} memory={fresh} />}
+    <group ref={lifter}>
+      <group ref={ring}>
+        {memories.map((m) => (
+          <Orb key={m.id} memory={m} selected={m.id === activeNodeId} isNew={m.id === newId} onSelect={onSelect} liftRef={liftNow} spreadRef={spreadNow} />
+        ))}
+        {fresh && <RiseFX key={fresh.id} memory={fresh} spread={spreadNow.current} />}
+      </group>
     </group>
   );
 }

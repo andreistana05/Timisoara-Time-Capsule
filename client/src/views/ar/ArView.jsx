@@ -16,7 +16,7 @@ import { Canvas } from '@react-three/fiber';
 import * as THREE from 'three';
 import { OrbitControls } from '@react-three/drei';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Box, Sparkles, Volume2, VolumeX, Crosshair, Compass } from 'lucide-react';
+import { Camera, Box, Sparkles, Volume2, VolumeX, Crosshair, Compass, Building2, Minus, Plus } from 'lucide-react';
 import { useSocket } from '../../socket/useSocket.js';
 import { CHAPTERS, CHAPTER_IDS, tr } from '@shared/events.js';
 import { ui } from '@shared/i18n.js';
@@ -31,7 +31,8 @@ import { AudioListenerSync, unlockAudio, playChime, startAura, setAura, stopAura
 import { useGyro, GyroCamera } from './useGyro.js';
 import { t } from './strings.js';
 import { usePlaza, resolvePlazaId } from './osmPlaza/usePlaza.js';
-import { OsmPlazaStage } from './osmPlaza/OsmHologram.jsx';
+import { OsmPlazaStage, fittedExtents } from './osmPlaza/OsmPlazaStage.jsx';
+import { CameraRig, MIN_DIST, planFrame } from './CameraRig.jsx';
 
 const NEW_WINDOW_MS = 15000;
 // Fit the camera distance so the ~4.6-unit-wide orbit ring fits horizontally on any aspect ratio.
@@ -80,9 +81,60 @@ export default function ArView() {
   const plazaId = resolvePlazaId(state);
   const { plaza, status: plazaStatus } = usePlaza(plazaId);
   const lastHolo = useRef(null);
+  // realistic (era-lit textured buildings) | hologram (glowing shells); remembered per device
+  const [plazaMode, setPlazaMode] = useState(() => {
+    try {
+      return localStorage.getItem('ar.plazaMode') === 'hologram' ? 'hologram' : 'realistic';
+    } catch {
+      return 'realistic';
+    }
+  });
+  const togglePlazaMode = () =>
+    setPlazaMode((m) => {
+      const next = m === 'realistic' ? 'hologram' : 'realistic';
+      try {
+        localStorage.setItem('ar.plazaMode', next);
+      } catch {
+        /* private mode */
+      }
+      return next;
+    });
   // while the next plaza downloads, keep the current one instead of flashing back to the diorama
   const holo = !plazaId ? null : plazaStatus === 'ready' ? plaza : plazaStatus === 'loading' ? lastHolo.current : null;
   lastHolo.current = holo;
+
+  /* ───────── framing: fit the plaza, lift the orbs over the roofs, zoom in AR camera mode ───────── */
+  const ext = useMemo(() => (holo ? fittedExtents(holo, plazaMode) : null), [holo, plazaMode]);
+  const [aspect, setAspect] = useState(() => window.innerWidth / Math.max(window.innerHeight, 1));
+  useEffect(() => {
+    const onResize = () => setAspect(window.innerWidth / Math.max(window.innerHeight, 1));
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, []);
+  // camera distance/target + orb orbit spread (fits the visible width) + lift (clears the roofs under it)
+  const plan = useMemo(() => planFrame(ext, aspect, FOV), [ext, aspect]);
+  const planKey = `${ext?.id ?? 'diorama'}:${plazaMode}:${aspect.toFixed(2)}`;
+  const zoomRef = useRef(1);
+  const zoomBy = (f) => (zoomRef.current *= f);
+  const pinch = useRef(null);
+  const touchDist = (e) => Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+  const onPinchStart = (e) => {
+    if (gyroActive && e.touches.length === 2) pinch.current = touchDist(e);
+  };
+  const onPinchMove = (e) => {
+    if (!gyroActive || pinch.current == null || e.touches.length !== 2) return;
+    const d = touchDist(e);
+    if (Math.abs(d - pinch.current) < 8) return; // ignore jitter; single-finger taps never get here
+    zoomBy(pinch.current / d); // fingers apart → closer
+    pinch.current = d;
+  };
+  const onPinchEnd = (e) => {
+    if (e.touches.length < 2) pinch.current = null;
+  };
 
   /* ───────── audio & speech ───────── */
   const enableSound = () => {
@@ -168,7 +220,14 @@ export default function ArView() {
   const speakingThis = !!speech && speech.id === active?.id;
 
   return (
-    <div className="fixed inset-0 overflow-hidden bg-obsidian select-none">
+    <div
+      className="fixed inset-0 overflow-hidden bg-obsidian select-none"
+      style={gyroActive ? { touchAction: 'none' } : undefined}
+      onTouchStart={onPinchStart}
+      onTouchMove={onPinchMove}
+      onTouchEnd={onPinchEnd}
+      onTouchCancel={onPinchEnd}
+    >
       {/* 1 · camera / fallback */}
       <video
         ref={videoRef}
@@ -202,7 +261,8 @@ export default function ArView() {
       >
         <ShaderClock />
         <AudioListenerSync />
-        <GyroCamera orientation={gyro.orientation} enabled={gyroActive} recenterKey={recenterKey} />
+        <GyroCamera orientation={gyro.orientation} enabled={gyroActive} recenterKey={`${recenterKey}:${planKey}`} lookAt={ext ? plan.target : undefined} />
+        <CameraRig plan={plan} planKey={planKey} zoomRef={zoomRef} />
         <ambientLight intensity={0.35} />
         <directionalLight position={[3, 5, 2]} intensity={0.9} />
         <directionalLight position={[-3, 2, -2]} intensity={0.3} color={theme.secondary} />
@@ -210,19 +270,19 @@ export default function ArView() {
           <group position-y={-0.6}>
             <HoloBase color={theme.primary} accent={theme.secondary} />
             {!holo && <Diorama key={chapterId} chapterId={chapterId} theme={theme} />}
-            <OsmPlazaStage plaza={holo} theme={theme} />
-            <MemoryOrbs memories={memories} activeNodeId={state?.activeNodeId} newId={newId} onSelect={handleSelect} />
+            <OsmPlazaStage plaza={holo} theme={theme} mode={plazaMode} />
+            <MemoryOrbs memories={memories} activeNodeId={state?.activeNodeId} newId={newId} onSelect={handleSelect} lift={plan.lift} spread={plan.spread} />
           </group>
         </Suspense>
         {!gyroActive && (
           <OrbitControls
             enablePan={false}
-            minDistance={2.5}
+            makeDefault
+            minDistance={MIN_DIST}
             maxDistance={14}
             maxPolarAngle={Math.PI / 2.05}
             autoRotate={mode === 'orbit' && !active}
             autoRotateSpeed={0.5}
-            target={[0, 0.1, 0]}
             enableDamping
           />
         )}
@@ -253,6 +313,7 @@ export default function ArView() {
               <div className="mt-1.5 space-y-0.5">
                 <p className="text-xs text-ivory/80">{tr(holo.name, lang)}</p>
                 {holo.caveat && <p className="font-mono text-[9px] uppercase tracking-[0.15em] text-mist">{tr(holo.caveat, lang)}</p>}
+                {plazaMode === 'realistic' && <p className="font-mono text-[9px] tracking-[0.1em] text-mist">{t('artisticRecon', lang)}</p>}
                 <p className="font-mono text-[9px] tracking-[0.1em] text-mist/80">{holo.attribution}</p>
               </div>
             )}
@@ -265,6 +326,12 @@ export default function ArView() {
             {mode === 'camera' ? <Box size={15} /> : <Camera size={15} />}
             {t(mode === 'camera' ? 'orbit' : 'arCamera', lang)}
           </Pill>
+          {holo && (
+            <Pill onClick={togglePlazaMode} active={plazaMode === 'realistic'} color={theme.primary}>
+              {plazaMode === 'realistic' ? <Sparkles size={15} /> : <Building2 size={15} />}
+              {t(plazaMode === 'realistic' ? 'hologram' : 'realistic', lang)}
+            </Pill>
+          )}
           <Pill onClick={toggleSound} active={sound === 'on'} color={theme.primary}>
             {sound === 'on' ? <Volume2 size={15} /> : <VolumeX size={15} />}
             {t('soundOn', lang)}
@@ -278,6 +345,17 @@ export default function ArView() {
             <Pill onClick={() => setRecenterKey((k) => k + 1)}>
               <Crosshair size={15} /> {t('recenter', lang)}
             </Pill>
+          )}
+          {gyroActive && (
+            // zoom in AR camera mode (OrbitControls is off there); pinch works too
+            <div className="flex gap-2">
+              <button aria-label={t('zoomOut', lang)} onClick={() => zoomBy(1.25)} className="glass flex h-11 w-11 items-center justify-center rounded-full active:scale-95">
+                <Minus size={18} />
+              </button>
+              <button aria-label={t('zoomIn', lang)} onClick={() => zoomBy(0.8)} className="glass flex h-11 w-11 items-center justify-center rounded-full active:scale-95">
+                <Plus size={18} />
+              </button>
+            </div>
           )}
           {mode === 'camera' && (camStatus === 'denied' || camStatus === 'unsupported') && (
             <span className="max-w-[12rem] rounded-xl bg-crimson/20 px-3 py-1.5 text-right text-[11px] text-ivory/80 backdrop-blur">

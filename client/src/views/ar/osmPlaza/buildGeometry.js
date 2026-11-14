@@ -10,6 +10,7 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { partsCoverage, drawsBuilding, baseMassFor } from './fit.js';
 
 const EDGE_ANGLE = 20; // degrees: crease threshold for the bright hologram edges
 const LIFT = 0.004; // paths / outlines float just above the pedestal
@@ -50,7 +51,7 @@ function wallGeometry(b) {
 }
 
 /** Roof profile: list of [scaleTowardCentroid, heightFraction]; scale 0 ends in an apex. */
-function roofProfile(roof) {
+export function roofProfile(roof) {
   switch (roof) {
     case null:
     case undefined:
@@ -128,7 +129,7 @@ function roofGeometry(b) {
 }
 
 /** Polylines → one LineSegments geometry. `closed` joins last→first. */
-function linesGeometry(polylines, y = LIFT, closed = false) {
+export function linesGeometry(polylines, y = LIFT, closed = false) {
   const pos = [];
   for (const pts of polylines) {
     if (!pts || pts.length < 2) continue;
@@ -144,7 +145,7 @@ function linesGeometry(polylines, y = LIFT, closed = false) {
   return g;
 }
 
-function flatPolygon(poly, y) {
+export function flatPolygon(poly, y) {
   if (!poly || poly.length < 3) return null;
   try {
     const g = new THREE.ShapeGeometry(new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, -z))));
@@ -174,10 +175,13 @@ export function buildPlazaGeometry(plaza) {
   const footprints = [];
   let maxY = 0, built = 0, skipped = 0;
 
-  for (const b of plaza.buildings || []) {
-    if (!visible(b)) continue;
-    footprints.push(b.footprint, ...(b.holes || [])); // blueprint outline on the ground for every building
-    if (b.render === 'parts') continue; // Simple 3D Buildings: the parts carry the real massing
+  const coverage = partsCoverage(plaza);
+  for (const src of plaza.buildings || []) {
+    if (!visible(src)) continue;
+    footprints.push(src.footprint, ...(src.holes || [])); // blueprint outline on the ground for every building
+    // Simple 3D Buildings: the parts carry the real massing, unless they cover < 85 % of the outline
+    if (!drawsBuilding(src, coverage)) continue;
+    const b = baseMassFor(src, coverage, plaza);
     const hero = !!b.landmark;
     const guessed = b.approximate || b.heightSource === 'default' || b.heightSource === 'estimate';
     try {

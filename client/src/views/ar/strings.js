@@ -38,6 +38,17 @@ const S = {
   },
   swipe: { ro: 'glisează în jos pentru a închide', en: 'swipe down to close', hu: 'húzd le a bezáráshoz', de: 'zum Schließen nach unten wischen', sr: 'prevuci nadole da zatvoriš' },
   rising: { ro: 'se ridică din piedestal', en: 'is rising from the pedestal', hu: 'emelkedik a talapzatból', de: 'steigt aus dem Sockel auf', sr: 'se uzdiže sa postolja' },
+  realistic: { ro: 'Realist', en: 'Realistic', hu: 'Valósághű', de: 'Realistisch', sr: 'Realistično' },
+  zoomIn: { ro: 'Apropie', en: 'Zoom in', hu: 'Nagyítás', de: 'Vergrößern', sr: 'Uvećaj' },
+  zoomOut: { ro: 'Depărtează', en: 'Zoom out', hu: 'Kicsinyítés', de: 'Verkleinern', sr: 'Umanji' },
+  hologram: { ro: 'Hologramă', en: 'Hologram', hu: 'Hologram', de: 'Hologramm', sr: 'Hologram' },
+  artisticRecon: {
+    ro: 'Reconstituire artistică · amprente și înălțimi reale (OpenStreetMap)',
+    en: 'Artistic reconstruction · real footprints & heights (OpenStreetMap)',
+    hu: 'Művészi rekonstrukció · valós alaprajzok és magasságok (OpenStreetMap)',
+    de: 'Künstlerische Rekonstruktion · echte Grundrisse & Höhen (OpenStreetMap)',
+    sr: 'Umetnička rekonstrukcija · stvarni tlocrti i visine (OpenStreetMap)',
+  },
 };
 
 export const t = (key, lang) => S[key]?.[lang] || S[key]?.en || key;

@@ -3,10 +3,10 @@
  * footprints, glowing heroes (Opera, cathedrals, Secession palaces), a scan-line build-up on arrival
  * and a crossfade between plazas. Owner: Member 3.
  *
- * <OsmPlazaStage plaza theme scale />  — keeps the outgoing plaza fading while the new one builds up.
+ * Mounted through <OsmPlazaStage> (OsmPlazaStage.jsx), which crossfades plazas and switches realistic/hologram.
  * All meshes/lines have raycast disabled so Memory Orbs stay tappable.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { sharedTime, makeBeamMaterial, useShader } from '../materials.js';
@@ -46,7 +46,7 @@ const frag = /* glsl */ `
   }
 `;
 
-function makeHoloMaterial(shared, { color, opacity, scan = 1, pulse = 0 }) {
+export function makeHoloMaterial(shared, { color, opacity, scan = 1, pulse = 0 }) {
   return new THREE.ShaderMaterial({
     uniforms: {
       uColor: { value: new THREE.Color(color) },
@@ -175,30 +175,6 @@ export function OsmHologram({ plaza, theme, leaving = false, onGone }) {
         <ringGeometry args={[1.9, 2.25, 96]} />
         <meshBasicMaterial color={theme.glow || theme.primary} transparent opacity={0.8} blending={THREE.AdditiveBlending} depthWrite={false} side={THREE.DoubleSide} toneMapped={false} />
       </mesh>
-    </group>
-  );
-}
-
-/** Crossfades plazas: the outgoing one fades while the incoming one builds up. `plaza=null` fades everything out. */
-export function OsmPlazaStage({ plaza, theme, scale = 0.68 }) {
-  const [layers, setLayers] = useState(() => (plaza ? [{ plaza, leaving: false }] : []));
-
-  useEffect(() => {
-    setLayers((prev) => {
-      const leavingOthers = prev.filter((l) => l.plaza.id !== plaza?.id).map((l) => (l.leaving ? l : { ...l, leaving: true }));
-      if (!plaza) return leavingOthers;
-      const same = prev.find((l) => l.plaza.id === plaza.id);
-      return [...leavingOthers, same ? { plaza, leaving: false } : { plaza, leaving: false }];
-    });
-  }, [plaza]);
-
-  const handleGone = useCallback((id) => setLayers((prev) => prev.filter((l) => !(l.leaving && l.plaza.id === id))), []);
-
-  return (
-    <group scale={scale}>
-      {layers.map((l) => (
-        <OsmHologram key={l.plaza.id} plaza={l.plaza} theme={theme} leaving={l.leaving} onGone={handleGone} />
-      ))}
     </group>
   );
 }
