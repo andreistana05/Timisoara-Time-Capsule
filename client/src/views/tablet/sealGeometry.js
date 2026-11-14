@@ -24,6 +24,35 @@ const ellipse = (cy, rx, ry) => {
   );
 };
 
+/* ───────────── Rotary Time Tuner (Seal viewBox is ±DIAL.view) ─────────────
+ *   0–143   static fiducial (white quiet zone, ArUco + 4 L-markers) — never moves
+ *   148     rosette band (chapter colour)
+ *   151–223 the 21 chapter motifs (original geometry × motifScale)
+ *   236     memory orbit
+ *   252–300 the rotating tuning ring (ticks, era bands, station notches)
+ *   300–318 knurled rim + the fixed index at 6 o'clock
+ */
+export const DIAL = Object.freeze({
+  view: 320,
+  rosette: 148,
+  motifScale: 1.16,
+  orbit: 236,
+  ringIn: 252,
+  ringOut: 300,
+  label: 266,
+  grabMin: 150, // gestures that start closer to the centre are ignored: the anchor stays untouched
+});
+
+/**
+ * Point on the dial for a timeline position t (0 = 1900 … 1 = 2026), with the ring at rest.
+ * t = 0 sits at 6 o'clock (under the index) and t grows counter-clockwise, so when the ring
+ * turns clockwise by t·360° the current year arrives at the index and later years enter from
+ * the right — the scale reads left → right at the index.
+ */
+export const ringPoint = (r, t) => [r * Math.sin(t * 2 * Math.PI), r * Math.cos(t * 2 * Math.PI)];
+/** SVG rotation (deg) that carries an element drawn at 6 o'clock to timeline position t. */
+export const ringRotation = (t) => -t * 360;
+
 export const MOTIFS = {
   // Human chain: alternating flat / edge-on links, overlapping like a real chain.
   '1989_piata_maria': (i) => ellipse(-160, 27, i % 2 ? 4 : 11),

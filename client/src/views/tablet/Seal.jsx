@@ -1,42 +1,33 @@
 /**
- * "The Seal" — Secession / Revolution sacred-geometry marker. Owner: Member 2.
+ * "The Seal" — now the Rotary Time Tuner. Owner: Member 2.
  *
- * Anatomy (viewBox ±232, radii in user units):
- *   0–118   STATIC high-contrast core. Never morphs, so it stays a stable
- *           image-tracking target for the phone (asymmetric notches = "up").
- *   122–132 rotating rosette band (dash pattern morphs per chapter)
- *   130–192 21 morphing motifs — one per community of Timișoara:
+ * Anatomy (viewBox ±320, see DIAL in sealGeometry.js):
+ *   0–143   STATIC 6DoF anchor: white quiet zone, ArUco #16 + 4 distinct L-markers.
+ *           Never animated or tinted, so the phone's /ar lens can always solve its pose.
+ *   148     rosette band (dash pattern morphs per chapter); green halo when the lens locks
+ *   151–223 21 morphing motifs — one per community of Timișoara:
  *             ch.1 Piața Maria  → interlocking links of the human chain
  *             ch.2 Opera        → light beams fanning from the balcony
  *             ch.3 Mosaic       → Secession whiplash petals
- *   182–212 21-point crown (jagged sparks → sunburst → near-circle band)
- *   220     memory orbit — one tappable dot per memory of the active chapter,
+ *   236     memory orbit — one tappable dot per memory of the active chapter,
  *           placed at the same azimuth the AR lens uses for its orbs.
+ *   252–300 the TUNING RING: grab it anywhere outside the anchor and turn. One full turn =
+ *           1900 → 2026. Tap a glowing station notch to glide there.
+ *   6 o'clock  fixed index + glass window (green when a station is locked)
  *
- * Every chapter motif is built with the SAME path command structure
- * (M + 4×C + Z), so framer-motion can interpolate `d` smoothly between them.
+ * Every chapter motif is built with the SAME path command structure (M + 4×C + Z),
+ * so framer-motion can interpolate `d` smoothly between them.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { Anchor, ScanLine } from 'lucide-react';
+import { TIMELINE, TIMELINE_ERAS, TIMELINE_ERA_BY_ID } from '@shared/events.js';
 import { SYMBOL_META } from '../../components/common.jsx';
-import { N, STEP, f, MOTIFS } from './sealGeometry.js';
-
-
-const CROWN = {
-  '1989_piata_maria': { rIn: 186, rOut: 210 }, // flickering sparks
-  '1989_opera': { rIn: 194, rOut: 212 }, // sunburst
-  multicultural_mosaic: { rIn: 199, rOut: 203 }, // calm mosaic band
-};
-
-const crownPath = ({ rIn, rOut }) => {
-  const pts = [];
-  for (let i = 0; i < N * 2; i++) {
-    const r = i % 2 ? rIn : rOut;
-    const a = ((i * 180) / N - 90) * (Math.PI / 180);
-    pts.push(`${f(Math.cos(a) * r)},${f(Math.sin(a) * r)}`);
-  }
-  return `M${pts.join(' L')} Z`;
-};
+import { N, STEP, MOTIFS, DIAL } from './sealGeometry.js';
+import AnchorTarget from './AnchorTarget.jsx';
+import DialRing, { DialIndex } from './DialRing.jsx';
+import { LOCK_GREEN, dial, useTimeDial } from './timeDial.js';
+import { t } from './strings.js';
 
 const STYLE = {
   '1989_piata_maria': { fillOpacity: 0, strokeWidth: 2.6, band: '10 6' },
@@ -44,7 +35,9 @@ const STYLE = {
   multicultural_mosaic: { fillOpacity: 0.14, strokeWidth: 1.8, band: '18 3' },
 };
 
-const ORBIT_R = 220;
+const ORBIT_R = DIAL.orbit;
+const DRAG_SLOP_PX = 7;
+const VIEW = DIAL.view;
 
 /** Azimuth of a memory on the table — matches its AR orb's x/z position. */
 function memoryAngle(m) {
@@ -55,13 +48,151 @@ function memoryAngle(m) {
   return ((h % 360) * Math.PI) / 180;
 }
 
-export default function Seal({ chapterId, theme, memories = [], activeNodeId, onSelectMemory, lastAddedMemory }) {
+/**
+ * Pointer → dial. A press becomes a drag after a few pixels (then the SVG captures the
+ * pointer); a press that never moves is a tap — on a station notch it tunes there, on a
+ * memory dot the dot's own onClick runs. `Math.atan2` gives the finger's angle around the
+ * centre; each move turns the dial by the unwrapped angle delta (one full turn = 0 → 1).
+ */
+function useDialGesture(svgRef) {
+  const g = useRef(null);
+  return useMemo(() => {
+    const locate = (e) => {
+      const rect = svgRef.current.getBoundingClientRect();
+      const dx = e.clientX - (rect.left + rect.width / 2);
+      const dy = e.clientY - (rect.top + rect.height / 2);
+      return { r: Math.hypot(dx, dy) / (rect.width / (2 * VIEW)), angle: Math.atan2(dy, dx) };
+    };
+    const end = (e, completed) => {
+      const s = g.current;
+      if (!s || s.id !== e.pointerId) return;
+      g.current = null;
+      if (s.dragging) dial.release({ fling: completed });
+      else if (completed && s.station) dial.tuneToStation(s.station);
+    };
+    return {
+      onPointerDown(e) {
+        if (g.current?.dragging || !svgRef.current) return; // one finger turns the dial
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        const { r, angle } = locate(e);
+        if (r < DIAL.grabMin) return; // never start on the anchor target
+        g.current = {
+          id: e.pointerId,
+          x: e.clientX,
+          y: e.clientY,
+          angle,
+          dragging: false,
+          station: e.target.closest?.('[data-station]')?.getAttribute('data-station') ?? null,
+        };
+      },
+      onPointerMove(e) {
+        const s = g.current;
+        if (!s || s.id !== e.pointerId) return;
+        if (!s.dragging) {
+          if (Math.hypot(e.clientX - s.x, e.clientY - s.y) < DRAG_SLOP_PX) return;
+          s.dragging = true;
+          try {
+            e.currentTarget.setPointerCapture(e.pointerId);
+          } catch {
+            /* pointer already gone */
+          }
+          dial.grab();
+        }
+        const { angle } = locate(e);
+        let d = angle - s.angle;
+        if (d > Math.PI) d -= 2 * Math.PI;
+        else if (d < -Math.PI) d += 2 * Math.PI;
+        s.angle = angle;
+        dial.turn(d / (2 * Math.PI));
+      },
+      onPointerUp: (e) => end(e, true),
+      onPointerCancel: (e) => end(e, false),
+      onLostPointerCapture: (e) => end(e, false),
+      onPointerLeave: (e) => {
+        if (g.current && !g.current.dragging && g.current.id === e.pointerId) g.current = null;
+      },
+    };
+  }, [svgRef]);
+}
+
+const KEY_STEPS = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1, PageUp: 10, PageDown: -10, Home: -999, End: 999 };
+
+/**
+ * The focusable slider around the Seal: keyboard, mouse wheel and ARIA. It re-renders
+ * when the year changes; its children (the whole Seal artwork) are passed in and don't.
+ */
+function DialSurface({ lang, children }) {
+  const year = useTimeDial((s) => s.currentYear);
+  const lockedId = useTimeDial((s) => (s.inStation ? s.nearestStation : ''));
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    let acc = 0;
+    const onWheel = (e) => {
+      e.preventDefault();
+      acc += Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+      const steps = Math.trunc(acc / 40);
+      if (steps) {
+        acc -= steps * 40;
+        dial.stepYears(steps);
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  const onKeyDown = (e) => {
+    if (e.key in KEY_STEPS) {
+      e.preventDefault();
+      dial.stepYears(KEY_STEPS[e.key]);
+      return;
+    }
+    const preset = ['1', '2', '3', '4'].indexOf(e.key);
+    if (preset >= 0) {
+      e.preventDefault();
+      dial.tuneToStation(TIMELINE_ERAS[preset].id);
+    }
+  };
+
+  return (
+    <div
+      ref={ref}
+      role="slider"
+      tabIndex={0}
+      aria-label={t('yearDial', lang)}
+      aria-valuemin={TIMELINE.startYear}
+      aria-valuemax={TIMELINE.endYear}
+      aria-valuenow={year}
+      aria-valuetext={lockedId ? `${year} — ${TIMELINE_ERA_BY_ID[lockedId].title[lang]}` : String(year)}
+      onKeyDown={onKeyDown}
+      onContextMenu={(e) => e.preventDefault()}
+      className="relative aspect-square w-full rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ivory/40"
+      style={{ touchAction: 'none', WebkitTouchCallout: 'none' }}
+    >
+      {children}
+    </div>
+  );
+}
+
+export default function Seal({
+  chapterId,
+  theme,
+  memories = [],
+  activeNodeId,
+  onSelectMemory,
+  lastAddedMemory,
+  anchorLocked = false,
+  lang = 'ro',
+}) {
   const reduce = useReducedMotion();
   const { primary, secondary, glow } = theme;
   const style = STYLE[chapterId] || STYLE['1989_piata_maria'];
   const motif = MOTIFS[chapterId] || MOTIFS['1989_piata_maria'];
   const paths = useMemo(() => Array.from({ length: N }, (_, i) => motif(i)), [motif]);
-  const crown = useMemo(() => crownPath(CROWN[chapterId] || CROWN['1989_piata_maria']), [chapterId]);
+  const svgRef = useRef(null);
+  const gesture = useDialGesture(svgRef);
 
   // Ripples: one per chapter change + one per new memory (in its symbol colour).
   const [ripples, setRipples] = useState([]);
@@ -82,20 +213,37 @@ export default function Seal({ chapterId, theme, memories = [], activeNodeId, on
     );
 
   return (
-    <div className="relative aspect-square w-full">
+    <DialSurface lang={lang}>
       {/* breathing halo */}
       <motion.div
-        className="pointer-events-none absolute inset-[14%] rounded-full blur-3xl"
-        animate={{ backgroundColor: glow, opacity: reduce ? 0.25 : [0.18, 0.34, 0.18], scale: reduce ? 1 : [0.94, 1.04, 0.94] }}
+        className="pointer-events-none absolute inset-[18%] rounded-full blur-3xl"
+        animate={{ backgroundColor: glow, opacity: reduce ? 0.22 : [0.16, 0.3, 0.16], scale: reduce ? 1 : [0.94, 1.04, 0.94] }}
         transition={{ backgroundColor: { duration: 1.2 }, default: { duration: 6, repeat: Infinity, ease: 'easeInOut' } }}
       />
 
-      <svg viewBox="-232 -232 464 464" className="relative h-full w-full overflow-visible" role="img" aria-label="The Seal">
+      {/* AR anchor status (sits in the empty corner of the square) */}
+      <div
+        className="pointer-events-none absolute left-0 top-0 z-10 flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.22em] backdrop-blur-md transition-colors duration-700 sm:text-[10px]"
+        style={{
+          color: anchorLocked ? LOCK_GREEN : '#9ca3af',
+          borderColor: anchorLocked ? `${LOCK_GREEN}80` : 'rgba(245,240,230,.1)',
+          backgroundColor: anchorLocked ? `${LOCK_GREEN}14` : 'rgba(10,10,15,.55)',
+        }}
+        title={t('sealHint', lang)}
+      >
+        {anchorLocked ? <Anchor size={12} /> : <ScanLine size={12} />}
+        <span>{anchorLocked ? t('anchorLocked', lang) : t('arAnchor', lang)}</span>
+        
+      </div>
+
+      <svg
+        ref={svgRef}
+        viewBox={`${-VIEW} ${-VIEW} ${VIEW * 2} ${VIEW * 2}`}
+        className="relative h-full w-full cursor-grab overflow-visible active:cursor-grabbing"
+        aria-hidden="true"
+        {...gesture}
+      >
         <defs>
-          <radialGradient id="seal-core" r="0.6">
-            <stop offset="0%" stopColor="#fff" />
-            <stop offset="100%" stopColor="#f5f0e6" />
-          </radialGradient>
           <filter id="seal-glow" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="3.5" result="b" />
             <feMerge>
@@ -105,94 +253,85 @@ export default function Seal({ chapterId, theme, memories = [], activeNodeId, on
           </filter>
         </defs>
 
-        {/* ripples */}
-        <AnimatePresence>
-          {ripples.map((r) => (
-            <motion.circle
-              key={r.id}
-              r={118}
-              fill="none"
-              stroke={r.color}
-              strokeWidth={3}
-              initial={{ r: 118, opacity: 0.9 }}
-              animate={{ r: 236, opacity: 0, strokeWidth: 0.5 }}
-              transition={{ duration: 2.2, ease: 'easeOut' }}
-              onAnimationComplete={() => setRipples((all) => all.filter((x) => x.id !== r.id))}
-            />
-          ))}
-        </AnimatePresence>
+        {/* the tuning ring (rotates with time) */}
+        <DialRing />
 
-        {/* crown */}
-        <g>
-          {spin(260, true)}
-          <motion.path
-            initial={false}
-            animate={{ d: crown, stroke: primary }}
-            transition={morph}
-            fill="none"
-            strokeWidth={1.4}
-            strokeLinejoin="round"
-            strokeOpacity={0.75}
-          />
-          <circle r={ORBIT_R} fill="none" stroke="#f5f0e6" strokeOpacity={0.08} strokeWidth={1} />
+        {/* 21 morphing motifs, scaled out of the anchor's way */}
+        <g transform={`scale(${DIAL.motifScale})`} pointerEvents="none">
+          <g>
+            {spin(160)}
+            {paths.map((d, i) => (
+              <g key={i} transform={`rotate(${i * STEP})`}>
+                <motion.path
+                  initial={false}
+                  animate={{
+                    d,
+                    stroke: i % 3 === 0 ? secondary : primary,
+                    fill: secondary,
+                    fillOpacity: style.fillOpacity,
+                    strokeWidth: style.strokeWidth,
+                  }}
+                  transition={{ ...morph, delay: reduce ? 0 : i * 0.035 }}
+                  strokeLinejoin="round"
+                />
+              </g>
+            ))}
+          </g>
         </g>
 
-        {/* 21 morphing motifs */}
-        <g>
-          {spin(160)}
-          {paths.map((d, i) => (
-            <g key={i} transform={`rotate(${i * STEP})`}>
-              <motion.path
-                initial={false}
-                animate={{
-                  d,
-                  stroke: i % 3 === 0 ? secondary : primary,
-                  fill: secondary,
-                  fillOpacity: style.fillOpacity,
-                  strokeWidth: style.strokeWidth,
-                }}
-                transition={{ ...morph, delay: reduce ? 0 : i * 0.035 }}
-                strokeLinejoin="round"
+        {/* rosette band + lens-locked halo */}
+        <g pointerEvents="none">
+          <AnimatePresence>
+            {anchorLocked && (
+              <motion.circle
+                key="anchor-lock"
+                r={DIAL.rosette}
+                fill="none"
+                stroke={LOCK_GREEN}
+                strokeWidth={14}
+                filter="url(#seal-glow)"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: reduce ? 0.4 : [0.25, 0.5, 0.25] }}
+                exit={{ opacity: 0, transition: { duration: 0.6 } }}
+                transition={{ duration: 2.4, repeat: reduce ? 0 : Infinity, ease: 'easeInOut' }}
               />
-            </g>
-          ))}
+            )}
+          </AnimatePresence>
+          <g>
+            {spin(70, true)}
+            <motion.circle
+              r={DIAL.rosette}
+              fill="none"
+              strokeWidth={5}
+              initial={false}
+              animate={{ stroke: primary, strokeDasharray: style.band }}
+              transition={morph}
+              strokeOpacity={0.9}
+            />
+          </g>
         </g>
 
-        {/* rosette band */}
-        <g>
-          {spin(70, true)}
-          <motion.circle
-            r={126}
-            fill="none"
-            strokeWidth={5}
-            initial={false}
-            animate={{ stroke: primary, strokeDasharray: style.band }}
-            transition={morph}
-            strokeOpacity={0.9}
-          />
+        {/* ripples */}
+        <g pointerEvents="none">
+          <AnimatePresence>
+            {ripples.map((r) => (
+              <motion.circle
+                key={r.id}
+                r={DIAL.rosette}
+                fill="none"
+                stroke={r.color}
+                strokeWidth={3}
+                initial={{ r: DIAL.rosette, opacity: 0.9 }}
+                animate={{ r: VIEW + 10, opacity: 0, strokeWidth: 0.5 }}
+                transition={{ duration: 2.2, ease: 'easeOut' }}
+                onAnimationComplete={() => setRipples((all) => all.filter((x) => x.id !== r.id))}
+              />
+            ))}
+          </AnimatePresence>
         </g>
 
-        {/* STATIC high-contrast core — the tracking target */}
-        <g>
-          <circle r="118" fill="#0a0a0f" stroke="#f5f0e6" strokeWidth="6" />
-          <rect x="-70" y="-70" width="140" height="140" fill="none" stroke="#f5f0e6" strokeWidth="5" transform="rotate(45)" />
-          <motion.rect
-            x="-58"
-            y="-58"
-            width="116"
-            height="116"
-            fill="none"
-            strokeWidth="4"
-            initial={false}
-            animate={{ stroke: primary }}
-            transition={{ duration: 1.2 }}
-          />
-          <circle r="46" fill="url(#seal-core)" />
-          <path d="M0,-38 L11,-11 L38,0 L11,11 L0,38 L-11,11 L-38,0 L-11,-11 Z" fill="#0a0a0f" />
-          <motion.circle r="7" initial={false} animate={{ fill: primary }} transition={{ duration: 1.2 }} />
-          <rect x="-8" y="-112" width="16" height="22" fill="#f5f0e6" />
-          <circle cx="78" cy="78" r="9" fill="#f5f0e6" />
-        </g>
+        {/* STATIC high-contrast core — the 6DoF tracking target */}
+        <AnchorTarget accent={primary} />
 
         {/* memory orbit */}
         <g>
@@ -215,7 +354,7 @@ export default function Seal({ chapterId, theme, memories = [], activeNodeId, on
                   className="cursor-pointer"
                 >
                   {/* generous invisible hit target (≥44px on a typical tablet) */}
-                  <circle cx={x} cy={y} r={20} fill="transparent" />
+                  <circle cx={x} cy={y} r={24} fill="transparent" />
                   {active && !reduce && (
                     <motion.circle
                       cx={x}
@@ -235,7 +374,10 @@ export default function Seal({ chapterId, theme, memories = [], activeNodeId, on
             })}
           </AnimatePresence>
         </g>
+
+        {/* fixed index at 6 o'clock */}
+        <DialIndex accent={primary} />
       </svg>
-    </div>
+    </DialSurface>
   );
 }

@@ -161,7 +161,7 @@ export default function MemoryDrawer({ open, onClose, lang, chapterId, addMemory
             role="dialog"
             aria-modal="true"
             aria-label={ui('igniteSpark', lang)}
-            className="fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[94dvh] max-w-3xl overflow-y-auto overscroll-contain rounded-t-[2rem] border border-white/10 bg-obsidian-2/95 p-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl sm:p-8"
+            className="fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[96dvh] max-w-3xl overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden rounded-t-[2rem] border border-white/10 bg-obsidian-2/95 p-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl sm:p-8"
             style={{ boxShadow: `0 -24px 90px ${accent}38` }}
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
@@ -263,7 +263,7 @@ export default function MemoryDrawer({ open, onClose, lang, chapterId, addMemory
                   setText(e.target.value.slice(0, MAX_TEXT));
                 }}
                 maxLength={MAX_TEXT}
-                rows={5}
+                rows={4}
                 placeholder={dictation.listening ? t('speakNow', lang) : ui('yourMemory', lang)}
                 className="block w-full resize-none bg-transparent px-5 pb-16 pt-4 font-display text-xl leading-relaxed outline-none placeholder:text-mist/60"
               />
