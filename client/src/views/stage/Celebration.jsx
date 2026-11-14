@@ -218,10 +218,11 @@ export default function Celebration({ lastAddedMemory, lang }) {
               initial={{ scale: 0.6, y: 80, opacity: 0, filter: 'blur(12px)' }}
               animate={{ scale: 1, y: 0, opacity: 1, filter: 'blur(0px)' }}
               transition={{ type: 'spring', damping: 18, stiffness: 70, delay: 0.7 }}
-              className="relative max-w-5xl px-12 text-center"
+              className="relative max-h-full max-w-5xl px-12 py-[clamp(1rem,4vh,2.5rem)] text-center"
             >
+              {/* sizes follow the viewport height so the whole card fits at 1280×600 */}
               <motion.div
-                className="relative mx-auto mb-8 flex h-36 w-36 items-center justify-center rounded-full"
+                className="relative mx-auto mb-[clamp(1rem,4vh,2rem)] flex size-[clamp(5rem,15vh,9rem)] items-center justify-center rounded-full"
                 style={{ background: `${color}22`, boxShadow: `0 0 140px ${color}, inset 0 0 40px ${color}66` }}
                 animate={{ scale: [1, 1.07, 1] }}
                 transition={{ repeat: Infinity, duration: 2.2, ease: 'easeInOut' }}
@@ -235,19 +236,21 @@ export default function Celebration({ lastAddedMemory, lang }) {
                     transition={{ duration: 2.4, repeat: Infinity, delay: d, ease: 'easeOut' }}
                   />
                 ))}
-                <SymbolIcon symbol={m.symbol} size={70} />
+                <span className="flex items-center justify-center [@media(max-height:800px)]:scale-75 [@media(max-height:640px)]:scale-[0.6]">
+                  <SymbolIcon symbol={m.symbol} size={70} />
+                </span>
               </motion.div>
               <p className="font-mono text-sm uppercase tracking-[0.5em]" style={{ color }}>
                 ✦ {s('justArrived', lang)} ✦
               </p>
-              <h2 className="mt-4 font-display text-6xl font-semibold leading-tight xl:text-8xl">{m.author}</h2>
+              <h2 className="mt-[clamp(0.5rem,2vh,1rem)] font-display text-[clamp(2.25rem,min(6vw,9vh),6rem)] font-semibold leading-tight">{m.author}</h2>
               {tr(m.title, lang, m.originalLanguage) && (
-                <p className="mt-3 font-display text-3xl text-ivory/70">{tr(m.title, lang, m.originalLanguage)}</p>
+                <p className="mt-[clamp(0.25rem,1.5vh,0.75rem)] font-display text-[clamp(1.25rem,4vh,1.875rem)] text-ivory/70">{tr(m.title, lang, m.originalLanguage)}</p>
               )}
-              <p className="mx-auto mt-6 line-clamp-4 max-w-4xl font-display text-3xl italic leading-snug text-ivory/85 xl:text-4xl">
+              <p className="mx-auto mt-[clamp(0.75rem,3vh,1.5rem)] line-clamp-4 max-w-4xl font-display text-[clamp(1.125rem,min(2.6vw,4vh),2.25rem)] italic leading-snug text-ivory/85">
                 “{tr(m.text, lang, m.originalLanguage)}”
               </p>
-              <p className="mt-6 font-mono text-xs uppercase tracking-[0.3em] text-mist">
+              <p className="mt-[clamp(0.75rem,3vh,1.5rem)] font-mono text-xs uppercase tracking-[0.3em] text-mist">
                 {CHAPTERS[m.chapter]?.title[lang]} · {s('visitor', lang)}
               </p>
             </motion.div>

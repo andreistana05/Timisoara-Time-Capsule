@@ -117,7 +117,9 @@ function Overlay({ memory, lang, duration, onClose }) {
       <Corner className="bottom-8 left-8 -scale-y-100" color={color} />
       <Corner className="bottom-8 right-8 -scale-100" color={color} />
 
-      <div className="relative mx-auto flex max-w-6xl flex-col items-center px-16 text-center">
+      {/* sizes scale with the viewport height so the full testimony fits at 1280×600;
+          max-h + overflow-y-auto is only a last resort for extreme windows */}
+      <div className="relative mx-auto flex max-h-full max-w-6xl flex-col items-center overflow-y-auto px-16 py-[clamp(1.5rem,5vh,3rem)] text-center [scrollbar-width:none]">
         <motion.p
           className="flex items-center gap-3 font-mono text-sm uppercase tracking-[0.45em]"
           style={{ color }}
@@ -129,7 +131,7 @@ function Overlay({ memory, lang, duration, onClose }) {
         </motion.p>
 
         <motion.div
-          className="relative mt-10 flex h-28 w-28 items-center justify-center rounded-full"
+          className="relative mt-[clamp(1rem,4.5vh,2.5rem)] flex size-[clamp(4rem,12vh,7rem)] shrink-0 items-center justify-center rounded-full"
           style={{ background: `${symColor}1f`, boxShadow: `0 0 90px ${symColor}aa, inset 0 0 30px ${symColor}55` }}
           initial={{ scale: 0, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -141,11 +143,13 @@ function Overlay({ memory, lang, duration, onClose }) {
             animate={{ scale: [1, 1.8], opacity: [0.7, 0] }}
             transition={{ duration: 2.6, repeat: Infinity, ease: 'easeOut' }}
           />
-          <SymbolIcon symbol={memory.symbol} size={52} />
+          <span className="flex items-center justify-center [@media(max-height:800px)]:scale-75 [@media(max-height:640px)]:scale-[0.6]">
+            <SymbolIcon symbol={memory.symbol} size={52} />
+          </span>
         </motion.div>
 
         <motion.h2
-          className="mt-10 font-display text-6xl font-semibold leading-[1.02] xl:text-7xl 2xl:text-8xl"
+          className="mt-[clamp(1rem,4.5vh,2.5rem)] font-display text-[clamp(2.25rem,min(5.6vw,8.5vh),6rem)] font-semibold leading-[1.02]"
           initial={{ opacity: 0, y: 30, filter: 'blur(14px)' }}
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
           transition={{ duration: 1.2, delay: 0.7, ease: 'easeOut' }}
@@ -154,7 +158,7 @@ function Overlay({ memory, lang, duration, onClose }) {
         </motion.h2>
 
         <motion.p
-          className="mt-5 font-mono text-base uppercase tracking-[0.3em] text-mist"
+          className="mt-[clamp(0.5rem,2vh,1.25rem)] font-mono text-[clamp(0.8125rem,1.8vh,1rem)] uppercase tracking-[0.3em] text-mist"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 1, delay: 1.1 }}
@@ -163,7 +167,7 @@ function Overlay({ memory, lang, duration, onClose }) {
           {memory.role ? ` · ${tr(memory.role, lang)}` : ''} · {memory.year}
         </motion.p>
 
-        <p className="relative mt-10 max-w-5xl font-display text-3xl italic leading-snug text-ivory/90 xl:text-4xl">
+        <p className="relative mt-[clamp(1rem,4.5vh,2.5rem)] max-w-5xl font-display text-[clamp(1.25rem,min(2.6vw,4vh),2.25rem)] italic leading-snug text-ivory/90">
           <span className="absolute -left-10 -top-6 font-display text-8xl not-italic leading-none" style={{ color, opacity: 0.35 }}>
             “
           </span>
@@ -181,7 +185,7 @@ function Overlay({ memory, lang, duration, onClose }) {
         </p>
 
         <motion.p
-          className="mt-10 font-mono text-xs uppercase tracking-[0.3em]"
+          className="mt-[clamp(1rem,4.5vh,2.5rem)] font-mono text-xs uppercase tracking-[0.3em]"
           style={{ color: memory.composite ? '#9ca3af' : color }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
