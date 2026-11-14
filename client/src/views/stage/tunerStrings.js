@@ -7,6 +7,8 @@ export const T = {
     de: 'Museums-Soundsystem aktivieren',
     sr: 'Aktiviraj zvučni sistem muzeja',
   },
+  /** Compact label for the activate button on short screens (full text stays as its tooltip). */
+  activateShort: { ro: 'Pornește sunetul', en: 'Sound on', hu: 'Hang be', de: 'Ton an', sr: 'Uključi zvuk' },
   timeTuner: { ro: 'Acordorul timpului', en: 'Time Tuner', hu: 'Időhangoló', de: 'Zeit-Tuner', sr: 'Tjuner vremena' },
   searching: {
     ro: 'Între posturi · se caută semnalul…',

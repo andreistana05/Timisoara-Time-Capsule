@@ -144,18 +144,24 @@ export default function ConstellationMap({ memories, chapterId, activeNodeId, ne
   }, [memories]);
 
   return (
-    <div className="relative h-full overflow-hidden rounded-3xl glass" style={{ borderColor: `${theme.primary}33` }}>
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-3xl glass" style={{ borderColor: `${theme.primary}33` }}>
       <div
         className="pointer-events-none absolute inset-0 transition-[background] duration-[1500ms]"
         style={{ background: `radial-gradient(ellipse at 50% 45%, ${theme.primary}14, transparent 65%)` }}
       />
 
-      <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between p-6">
-        <div>
+      {/* header row · map box (SVG scales to it, aspect preserved); hint overlays the bottom-left corner */}
+      <div
+        className="relative z-10 flex shrink-0 flex-wrap items-start justify-between gap-x-4 gap-y-1"
+        style={{ padding: 'var(--stg-map-pad) var(--stg-map-pad) 0' }}
+      >
+        <div className="min-w-0">
           <p className="font-mono text-xs uppercase tracking-[0.35em]" style={{ color: theme.primary }}>
             ✦ {s('constellation', lang)}
           </p>
-          <p className="mt-1 font-display text-2xl">Timișoara · 45°45′N 21°14′E</p>
+          <p className="mt-0.5 font-display leading-tight" style={{ fontSize: 'var(--stg-map-title)' }}>
+            Timișoara · 45°45′N 21°14′E
+          </p>
         </div>
         <div className="flex gap-4 font-mono text-xs text-mist">
           {Object.entries(counts).map(([sym, n]) => (
@@ -165,8 +171,7 @@ export default function ConstellationMap({ memories, chapterId, activeNodeId, ne
           ))}
         </div>
       </div>
-      <p className="absolute bottom-5 left-6 z-10 font-mono text-[11px] uppercase tracking-[0.25em] text-mist/70">↳ {s('clickStar', lang)}</p>
-
+      <div className="relative min-h-0 flex-1">
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" className="absolute inset-0 h-full w-full">
         <style>{CSS}</style>
         <defs>
@@ -398,6 +403,14 @@ export default function ConstellationMap({ memories, chapterId, activeNodeId, ne
           </g>
         )}
       </svg>
+      </div>
+
+      <p
+        className="pointer-events-none absolute bottom-0 left-0 z-10 font-mono text-[11px] uppercase tracking-[0.25em] text-mist/70"
+        style={{ padding: '0 var(--stg-map-pad) calc(var(--stg-map-pad) * 0.75)' }}
+      >
+        ↳ {s('clickStar', lang)}
+      </p>
     </div>
   );
 }
